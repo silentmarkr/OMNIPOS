@@ -63,7 +63,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261021-5">
+    <link rel="stylesheet" href="style.css?v=20261024-3">
 
     <link rel="stylesheet" href="css/themes/vivid-base.css?v=1" data-retry>
     <link rel="stylesheet" href="css/themes/theme-dark.css?v=2" data-retry>
@@ -226,16 +226,22 @@
                 </div>
             </div>
 
-            <nav class="sidebar-menu">
-                <span class="menu-section-label">Main</span>
-                <a href="#" class="menu-item active" id="menu-overview" onclick="switchView('overview')"><i class="fa-solid fa-laptop-house"></i> Overview</a>
-                <a href="#" class="menu-item" id="menu-terminal" onclick="switchView('terminal')"><i class="fa-solid fa-computer"></i> POS Terminal</a>
+            <nav class="sidebar-menu" id="sidebar-nav" aria-label="Main navigation">
+                <div class="sb-find" id="sb-find" role="search">
+                    <i class="fa-solid fa-magnifying-glass sb-find-icon" aria-hidden="true"></i>
+                    <input type="search" id="sb-find-input" class="sb-find-input" placeholder="Quick find..." aria-label="Quick find a menu" autocomplete="off" spellcheck="false" enterkeyhint="go">
+                    <kbd class="sb-find-kbd" aria-hidden="true">/</kbd>
+                    <button type="button" class="sb-find-clear" id="sb-find-clear" aria-label="Clear search" hidden><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <span data-sec="main" class="menu-section-label">Main</span>
+                <a href="#" data-sec="main" class="menu-item active" id="menu-overview" onclick="switchView('overview')"><i class="fa-solid fa-laptop-house"></i> Overview</a>
+                <a href="#" data-sec="main" class="menu-item" id="menu-terminal" onclick="switchView('terminal')"><i class="fa-solid fa-computer"></i> POS Terminal</a>
 
                 <div class="menu-section-row">
-                    <span class="menu-section-label">Inventory</span>
+                    <span data-sec="inventory" class="menu-section-label">Inventory</span>
                     <button type="button" class="menu-section-pro-btn" id="menu-pro-toggle-inventory" style="display:none;" aria-expanded="false" aria-label="Show locked PRO features" title="Show locked PRO features" onclick="toggleSidebarProCategory('inventory', event)"><span class="menu-section-pro-text">PRO</span><i class="fa-solid fa-lock menu-section-pro-icon"></i></button>
                 </div>
-                <div class="menu-dropdown" id="menu-inventory-group">
+                <div data-sec="inventory" class="menu-dropdown" id="menu-inventory-group">
                     <span class="menu-item-header"><i class="fa-solid fa-boxes-stacked"></i> Inventory <i class="fa-solid fa-chevron-down drop-icon"></i></span>
                     <div class="dropdown-container">
                         <a href="#" class="sub-menu-item" id="menu-inventory-dashboard" onclick="switchView('dashboard')"><i class="fa-solid fa-gauge" style="font-size: 0.85rem; margin-right: 5px;"></i> Dashboard</a>
@@ -249,30 +255,31 @@
                 </div>
 
                 <div class="menu-section-row">
-                    <span class="menu-section-label">Management</span>
+                    <span data-sec="management" class="menu-section-label">Management</span>
                     <button type="button" class="menu-section-pro-btn" id="menu-pro-toggle-management" style="display:none;" aria-expanded="false" aria-label="Show locked PRO features" title="Show locked PRO features" onclick="toggleSidebarProCategory('management', event)"><span class="menu-section-pro-text">PRO</span><i class="fa-solid fa-lock menu-section-pro-icon"></i></button>
                 </div>
-                <a href="#" class="menu-item" id="menu-transactions" onclick="switchView('transactions')"><i class="fa-solid fa-receipt"></i> Transaction</a>
-                <a href="#" class="menu-item" id="menu-bir_compliance" onclick="switchView('bir_compliance')"><i class="fa-solid fa-file-invoice"></i> BIR Compliance <span id="menu-bir_compliance-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-bir_compliance-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-reports" onclick="switchView('reports')"><i class="fa-solid fa-chart-line"></i> Sales Report <span id="menu-reports-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-reports-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-customers" onclick="switchView('customers')"><i class="fa-solid fa-address-book"></i> Customers <span id="menu-customers-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-customers-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-debts" onclick="switchView('debts')"><i class="fa-solid fa-hand-holding-dollar"></i> Debtors <span id="menu-debts-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-debts-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-shiftreport" onclick="switchView('shiftreport')"><i class="fa-solid fa-cash-register"></i> Shift / Z-Reading <span id="menu-shiftreport-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-shiftreport-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-branches" onclick="switchView('branches')"><i class="fa-solid fa-code-branch"></i> Branches <span id="menu-branches-alert-badge" class="lowstock-bell-badge" style="display:none; position:static; margin-left:6px;">0</span> <span id="menu-branches-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-branches-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-attendance" onclick="switchView('attendance')"><i class="fa-solid fa-camera"></i> Staff Attendance <span id="menu-attendance-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-attendance-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-remoteops" onclick="switchView('remoteops')"><i class="fa-solid fa-mobile-screen-button"></i> Remote Operations <span id="menu-remoteops-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-remoteops-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-marketplace" onclick="switchView('marketplace')"><i class="fa-solid fa-store"></i> Marketplace Hub <span id="menu-marketplace-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-marketplace-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
-                <a href="#" class="menu-item" id="menu-logs" onclick="switchView('logs')"><i class="fa-solid fa-clock-rotate-left"></i> User Logs</a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-transactions" onclick="switchView('transactions')"><i class="fa-solid fa-receipt"></i> Transaction</a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-bir_compliance" onclick="switchView('bir_compliance')"><i class="fa-solid fa-file-invoice"></i> BIR Compliance <span id="menu-bir_compliance-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-bir_compliance-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-reports" onclick="switchView('reports')"><i class="fa-solid fa-chart-line"></i> Sales Report <span id="menu-reports-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-reports-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-customers" onclick="switchView('customers')"><i class="fa-solid fa-address-book"></i> Customers <span id="menu-customers-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-customers-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-debts" onclick="switchView('debts')"><i class="fa-solid fa-hand-holding-dollar"></i> Debtors <span id="menu-debts-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-debts-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-shiftreport" onclick="switchView('shiftreport')"><i class="fa-solid fa-cash-register"></i> Shift / Z-Reading <span id="menu-shiftreport-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-shiftreport-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-branches" onclick="switchView('branches')"><i class="fa-solid fa-code-branch"></i> Branches <span id="menu-branches-alert-badge" class="lowstock-bell-badge" style="display:none; position:static; margin-left:6px;">0</span> <span id="menu-branches-lock" class="menu-pro-lock" style="display:none;" title="Premium feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-branches-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-attendance" onclick="switchView('attendance')"><i class="fa-solid fa-camera"></i> Staff Attendance <span id="menu-attendance-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-attendance-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-remoteops" onclick="switchView('remoteops')"><i class="fa-solid fa-mobile-screen-button"></i> Remote Operations <span id="menu-remoteops-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-remoteops-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-marketplace" onclick="switchView('marketplace')"><i class="fa-solid fa-store"></i> Marketplace Hub <span id="menu-marketplace-lock" class="menu-pro-lock" style="display:none;" title="Subscription feature — locked"><i class="fa-solid fa-lock"></i></span><span id="menu-marketplace-pro" class="menu-pro-badge" style="display:none;">PRO</span></a>
+                <a href="#" data-sec="management" class="menu-item" id="menu-logs" onclick="switchView('logs')"><i class="fa-solid fa-clock-rotate-left"></i> User Logs</a>
 
-                <span class="menu-section-label">System</span>
-                <a href="#" class="menu-item" id="menu-users" onclick="switchView('users')"><i class="fa-solid fa-gear"></i> Settings</a>
+                <span data-sec="system" class="menu-section-label">System</span>
+                <a href="#" data-sec="system" class="menu-item" id="menu-users" onclick="switchView('users')"><i class="fa-solid fa-gear"></i> Settings</a>
 
-                <span class="menu-section-label admin-only-nav" id="menu-section-admin" style="display:none;">Admin</span>
-                <a href="#" class="menu-item admin-only-nav" id="menu-cloudtokens" onclick="switchView('cloudtokens')" style="display:none;" title="Admin only — not part of Roles &amp; Permissions"><i class="fa-solid fa-gem"></i> Omni Tokens</a>
+                <span data-sec="admin" class="menu-section-label admin-only-nav" id="menu-section-admin" style="display:none;">Admin</span>
+                <a href="#" data-sec="admin" class="menu-item admin-only-nav" id="menu-cloudtokens" onclick="switchView('cloudtokens')" style="display:none;" title="Admin only — not part of Roles &amp; Permissions"><i class="fa-solid fa-gem"></i> Omni Tokens</a>
 
-                <span class="menu-section-label">Support</span>
-                <a href="#" class="menu-item admin-only-nav" id="menu-sponsor" onclick="openSponsorModal(); return false;" style="display:none;" title="Admin only — donate or sponsor to help improve OmniPOS"><i class="fa-solid fa-heart"></i> Support Developer</a>
-                <a href="#" class="menu-item" id="menu-faq" onclick="switchView('faq')"><i class="fa-solid fa-circle-question"></i> Help</a>
+                <span data-sec="support" class="menu-section-label">Support</span>
+                <a href="#" data-sec="support" class="menu-item admin-only-nav" id="menu-sponsor" onclick="openSponsorModal(); return false;" style="display:none;" title="Admin only — donate or sponsor to help improve OmniPOS"><i class="fa-solid fa-heart"></i> Support Developer</a>
+                <a href="#" data-sec="support" class="menu-item" id="menu-faq" onclick="switchView('faq')"><i class="fa-solid fa-circle-question"></i> Help</a>
+                <div class="sb-empty" id="sb-empty" hidden><i class="fa-regular fa-face-meh-blank"></i><span>No menu found</span></div>
             </nav>
         </aside>
 
@@ -1904,6 +1911,25 @@
                         <span style="font-size:0.78rem; color:var(--text-muted);">Sends a cut command (ESC/POS) after printing on the Bluetooth thermal printer. Has no effect if your printer doesn't have a built-in cutter.</span>
                     </span>
                 </label>
+                <div class="input-field-group" style="margin-top:14px;">
+                    <label>Printer used for auto-print &amp; cash drawer</label>
+                    <select id="rc-preferred-printer" onchange="savePreferredPrinterPreference()" autocomplete="off">
+                        <option value="auto">Automatic (USB &rarr; Bluetooth &rarr; WiFi/LAN &rarr; browser)</option>
+                        <option value="usb">USB Printer</option>
+                        <option value="bluetooth">Bluetooth Printer</option>
+                        <option value="network">WiFi / LAN Printer</option>
+                        <option value="browser">Browser Print Dialog only</option>
+                    </select>
+                    <p style="font-size:0.72rem;color:var(--text-muted);margin:6px 0 0;">If the chosen printer is not available, the system falls back to Automatic. Also editable from POS Terminal &rsaquo; Settings &rsaquo; Printer &amp; Printing.</p>
+                </div>
+                <div class="input-field-group">
+                    <label>Copies per auto-print <span style="font-weight:normal;color:#94a3b8;">(thermal printers only)</span></label>
+                    <select id="rc-auto-print-copies" onchange="saveAutoPrintCopiesPreference()" autocomplete="off">
+                        <option value="1">1 copy</option>
+                        <option value="2">2 copies (customer + store)</option>
+                        <option value="3">3 copies</option>
+                    </select>
+                </div>
                 </div>
             </details>
 
@@ -2971,6 +2997,15 @@
             </div>
         </div>
 
+        <div id="cloud-backup-contents-wrap" style="display:none; margin-bottom: 14px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 0.85rem;">
+            <div style="font-size:0.75rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color: var(--text-muted); margin-bottom:6px;">
+                <i class="fa-solid fa-list-check"></i> Backup contents (Auto Backup list)
+            </div>
+            <div id="cloud-backup-contents-summary" style="line-height:1.45; margin-bottom:10px;">Loading&hellip;</div>
+            <button id="cloud-backup-contents-btn" onclick="showCloudBackupContentsList()" style="width: 100%; padding: 9px; background: transparent; color: var(--pos-accent, #2563eb); border: 1px solid var(--pos-accent, #2563eb); border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.88rem;">
+                <i class="fa-solid fa-eye"></i> View what is backed up
+            </button>
+        </div>
         <button id="cloud-backup-get-btn" onclick="getCloudBackupUpgrade()" style="width: 100%; padding: 12px; background: var(--pos-accent, #2563eb); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.95rem;">
             <i class="fa-solid fa-lock"></i> Get Cloud Backup — starting at ₱129/mo
         </button>
@@ -4914,13 +4949,16 @@
                 <button class="close-modal-btn" onclick="closeModal('terminal-settings-modal')">&times;</button>
             </div>
             <div class="modal-body">
-                <p style="font-size:0.82rem; color:var(--text-muted); margin:0 0 16px;">
-    This is a mirror of the settings located under <b>Users &gt; Store &amp; Sales / Appearance / Advanced</b> — only the fields directly used on the POS Terminal page are displayed here. Any changes saved here will automatically update the Settings page (they are synced in real time), and vice versa.
-</p>
+                <p style="font-size:0.78rem; color:var(--text-muted); margin:0 0 12px; line-height:1.45;">Live mirror of <b>Users &rsaquo; Store &amp; Sales / Appearance / Advanced</b>. The server is the source of truth, so changes sync with the Settings page and other terminals automatically. Printer settings apply to <b>this device only</b>. QR images and BIR details stay on the Settings page.</p>
 
                 <div id="terminal-settings-status" style="margin-bottom:14px; font-size:0.8rem; color:var(--text-muted);"></div>
 
-                <details class="rc-section" close>
+                <div style="display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; margin-bottom:14px; padding:10px 12px; border:1px solid var(--border-color); border-radius:8px;">
+                    <div id="tset-sync-status" style="flex:1 1 220px; font-size:0.78rem; color:var(--text-muted); line-height:1.5;">Checking sync status…</div>
+                    <button type="button" id="tset-sync-now-btn" class="btn-action-outline" onclick="syncSettingsNowFromTerminalModal()"><i class="fa-solid fa-rotate"></i> Sync Now</button>
+                </div>
+
+                <details class="rc-section">
                     <summary><i class="fa-solid fa-receipt" style="color:#16a34a;"></i> <span>Receipt Customization</span></summary>
                     <div class="rc-section-body">
                         <div class="input-field-group">
@@ -4943,21 +4981,184 @@
                             <label>Receipt Footer Message</label>
                             <input type="text" id="tset-rc-footer" placeholder="e.g. Thank you for shopping!" autocomplete="off">
                         </div>
-                        <small style="color:var(--text-muted); font-size:0.75rem; display:block; margin:-8px 0 12px;">Ang Logo/Image na header at ang advanced na receipt style (barcode, QR, fonts, transaction ID format) ay nasa Users &gt; Receipt Customization pa rin (hindi kasama dito).</small>
+                        <small style="color:var(--text-muted); font-size:0.75rem; display:block; margin:-8px 0 12px;">Logo/header image, barcode, QR and fonts: Users &rsaquo; Receipt Customization.</small>
                         <button type="button" class="btn-action-global" onclick="saveTerminalReceiptSettings()">
                             <i class="fa-solid fa-floppy-disk"></i> Save Receipt Details
                         </button>
                         <hr style="border:none; border-top:1px solid var(--border-color); margin:18px 0;">
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:0 0 8px;"><i class="fa-solid fa-receipt"></i> Receipt Layout</h4>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-tw-enabled" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-tw-enabled">Use the Modern Receipt Template (convenience-store width)</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Modern Template Width: <span id="tset-tw-widthmm-val">57</span> mm</label>
+                            <input type="range" id="tset-tw-widthmm" min="40" max="80" step="1" oninput="onTerminalModernWidthInput()" autocomplete="off">
+                        </div>
+                        <button type="button" class="btn-action-outline" onclick="saveTerminalModernTemplate()" style="margin-bottom:14px;">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Template
+                        </button>
+                        <div class="input-field-group">
+                            <label>Transaction ID Format</label>
+                            <select id="tset-rc-txnid-format" onchange="onTerminalTxnIdFormatChange()">
+                                <option value="xs">Shortest &mdash; 4 characters</option>
+                                <option value="sm">Short &mdash; 6 characters</option>
+                                <option value="md">Medium &mdash; 8 characters</option>
+                                <option value="lg">Long &mdash; 12 characters</option>
+                                <option value="original">Original &mdash; "TX-" + timestamp</option>
+                            </select>
+                            <small id="tset-txnid-preview" style="display:block; margin-top:4px; font-family:monospace; color:var(--text-muted);"></small>
+                        </div>
+                        <button type="button" class="btn-action-outline" onclick="saveTerminalTransactionIdFormat()">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Transaction ID Format
+                        </button>
+                    </div>
+                </details>
+
+                <details class="rc-section" id="tset-printer-section" style="margin-top:14px;" data-no-dirty="1">
+                    <summary><i class="fa-solid fa-print" style="color:#2563eb;"></i> <span>Printer &amp; Printing</span> <span style="font-weight:normal; font-size:0.72rem; color:#94a3b8;">(this device)</span></summary>
+                    <div class="rc-section-body">
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; font-size:0.84rem; padding:10px 12px; border-radius:8px; background:rgba(37,99,235,0.05); border:1px solid var(--border-color);">
+                            <span id="tset-pr-summary-dot" style="width:10px; height:10px; border-radius:50%; background:#94a3b8; display:inline-block; flex-shrink:0;"></span>
+                            <span id="tset-pr-summary-text">Walang naka-set up na printer</span>
+                        </div>
+
+                        <div class="input-field-group">
+                            <label>Printer to use for auto-print &amp; cash drawer</label>
+                            <select id="tset-pr-preferred" onchange="saveTerminalPrinterPreference()" autocomplete="off">
+                                <option value="auto">Automatic (USB &rarr; Bluetooth &rarr; WiFi/LAN &rarr; browser)</option>
+                                <option value="usb">USB Printer</option>
+                                <option value="bluetooth">Bluetooth Printer</option>
+                                <option value="network">WiFi / LAN Printer</option>
+                                <option value="browser">Browser Print Dialog only</option>
+                            </select>
+                        </div>
                         <div class="input-field-group">
                             <label>Printer Paper Size</label>
                             <select id="tset-rc-papersize">
                                 <option value="58mm">58mm (compact thermal/portable printer)</option>
-                                <option value="80mm">80mm (standard POS thermal printer used in convenience stores)</option>
+                                <option value="80mm">80mm (standard POS thermal printer)</option>
                             </select>
+                            <small style="color:var(--text-muted); font-size:0.72rem;">Store-wide: syncs to every terminal.</small>
                         </div>
-                        <button type="button" class="btn-action-outline" onclick="saveTerminalReceiptPaperSize()">
+                        <button type="button" class="btn-action-outline" onclick="saveTerminalReceiptPaperSize()" style="margin-bottom:14px;">
                             <i class="fa-solid fa-print"></i> Save Paper Size
                         </button>
+
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-pr-auto-print" style="width:auto;" onchange="saveTerminalPrinterPreference()" autocomplete="off">
+                            <label style="margin:0;" for="tset-pr-auto-print">Auto-print receipt after every sale</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Copies per auto-print <small style="font-weight:normal; color:var(--text-muted);">(thermal printers only)</small></label>
+                            <select id="tset-pr-copies" onchange="saveTerminalPrinterPreference()" autocomplete="off">
+                                <option value="1">1 copy</option>
+                                <option value="2">2 copies (customer + store)</option>
+                                <option value="3">3 copies</option>
+                            </select>
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-pr-auto-drawer" style="width:auto;" onchange="saveTerminalPrinterPreference()" autocomplete="off">
+                            <label style="margin:0;" for="tset-pr-auto-drawer">Auto-open cash drawer on Cash sales</label>
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-pr-auto-cut" style="width:auto;" onchange="saveTerminalPrinterPreference()" autocomplete="off">
+                            <label style="margin:0;" for="tset-pr-auto-cut">Auto-cut paper after printing (printers with a cutter)</label>
+                        </div>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; margin:6px 0 16px;">
+                            <button type="button" class="btn-action-outline" onclick="terminalTestPrint()"><i class="fa-solid fa-vial"></i> Test Print</button>
+                            <button type="button" class="btn-action-outline" onclick="terminalTestCashDrawer()"><i class="fa-solid fa-box-open"></i> Test Cash Drawer</button>
+                        </div>
+
+                        <details class="rc-section-sub">
+                            <summary><i class="fa-brands fa-usb" style="color:#2563eb;"></i> <span>USB Printer</span></summary>
+                            <div class="rc-section-body">
+                                <div class="input-field-group">
+                                    <label>USB method</label>
+                                    <select id="tset-pr-usb-mode" onchange="onTerminalUsbModeChange()" autocomplete="off">
+                                        <option value="webusb">Direct USB (WebUSB) &mdash; recommended</option>
+                                        <option value="webserial">USB Serial / Virtual COM (Web Serial)</option>
+                                        <option value="server">USB via OmniPOS Server (CUPS / /dev/usb/lp)</option>
+                                    </select>
+                                </div>
+                                <div class="input-field-group" id="tset-pr-usb-baud-wrap" style="display:none;">
+                                    <label>Baud Rate</label>
+                                    <select id="tset-pr-usb-baud" onchange="onTerminalUsbBaudChange()" autocomplete="off">
+                                        <option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option><option value="57600">57600</option><option value="115200">115200</option>
+                                    </select>
+                                </div>
+                                <div class="input-field-group" id="tset-pr-usb-server-wrap" style="display:none;">
+                                    <label>Printer on the server</label>
+                                    <select id="tset-pr-usb-server-target" onchange="onTerminalUsbServerTargetChange()" autocomplete="off"></select>
+                                    <button type="button" class="btn-action-outline" onclick="refreshTerminalUsbServerTargets()" style="margin-top:6px;"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                                </div>
+                                <p id="tset-pr-usb-status" style="font-size:0.8rem; color:var(--text-muted); margin:0 0 10px;"></p>
+                                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                    <button type="button" class="btn-action-outline" onclick="terminalPairUsbPrinter()"><i class="fa-brands fa-usb"></i> Pair Printer</button>
+                                    <button type="button" class="btn-action-outline" onclick="terminalUsbAction('testPrintUsbPrinter')"><i class="fa-solid fa-vial"></i> Test Print</button>
+                                    <button type="button" class="btn-action-outline" onclick="terminalUsbAction('checkUsbPrinterStatus')"><i class="fa-solid fa-heart-pulse"></i> Status</button>
+                                    <button type="button" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444;" onclick="terminalForgetUsbPrinter()"><i class="fa-solid fa-link-slash"></i> Remove</button>
+                                </div>
+                            </div>
+                        </details>
+
+                        <details class="rc-section-sub" style="margin-top:10px;">
+                            <summary><i class="fa-solid fa-bluetooth-b" style="color:#2563eb;"></i> <span>Bluetooth Printer</span></summary>
+                            <div class="rc-section-body">
+                                <div class="input-field-group">
+                                    <label>Printer Brand <small style="font-weight:normal; color:var(--text-muted);">(fills the UUIDs)</small></label>
+                                    <select id="tset-pr-bt-brand" onchange="onTerminalBtBrandChange()" autocomplete="off"></select>
+                                    <small id="tset-pr-bt-brand-note" style="display:block; margin-top:4px; font-size:0.72rem; color:var(--text-muted);"></small>
+                                </div>
+                                <div class="input-field-group">
+                                    <label>Service UUID</label>
+                                    <input type="text" id="tset-pr-bt-service" placeholder="000018f0-0000-1000-8000-00805f9b34fb" autocomplete="off">
+                                </div>
+                                <div class="input-field-group">
+                                    <label>Characteristic UUID</label>
+                                    <input type="text" id="tset-pr-bt-char" placeholder="00002af1-0000-1000-8000-00805f9b34fb" autocomplete="off">
+                                </div>
+                                <p id="tset-pr-bt-status" style="font-size:0.8rem; color:var(--text-muted); margin:0 0 10px;"></p>
+                                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                    <button type="button" class="btn-action-outline" onclick="saveTerminalBtUuids()"><i class="fa-solid fa-floppy-disk"></i> Save UUIDs</button>
+                                    <button type="button" class="btn-action-outline" onclick="terminalPairBtPrinter()"><i class="fa-solid fa-bluetooth-b"></i> Pair Printer</button>
+                                    <button type="button" class="btn-action-outline" onclick="terminalBtAction('testPrintBluetoothPrinter')"><i class="fa-solid fa-vial"></i> Test Print</button>
+                                    <button type="button" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444;" onclick="terminalForgetBtPrinter()"><i class="fa-solid fa-link-slash"></i> Remove</button>
+                                </div>
+                            </div>
+                        </details>
+
+                        <details class="rc-section-sub" style="margin-top:10px;">
+                            <summary><i class="fa-solid fa-wifi" style="color:#2563eb;"></i> <span>WiFi / LAN Printer</span></summary>
+                            <div class="rc-section-body">
+                                <div class="input-field-group">
+                                    <label>Connection</label>
+                                    <select id="tset-pr-net-conn" autocomplete="off">
+                                        <option value="wifi">WiFi</option>
+                                        <option value="lan">LAN Cable (Ethernet)</option>
+                                    </select>
+                                </div>
+                                <div class="input-field-group">
+                                    <label>Printer Brand <small style="font-weight:normal; color:var(--text-muted);">(fills the default Port)</small></label>
+                                    <select id="tset-pr-net-brand" onchange="onTerminalNetBrandChange()" autocomplete="off"></select>
+                                </div>
+                                <div class="input-field-group">
+                                    <label>Printer IP Address</label>
+                                    <input type="text" id="tset-pr-net-host" placeholder="192.168.1.100" autocomplete="off" inputmode="decimal">
+                                </div>
+                                <div class="input-field-group">
+                                    <label>Port</label>
+                                    <input type="number" id="tset-pr-net-port" placeholder="9100" min="1" max="65535" step="1" autocomplete="off">
+                                </div>
+                                <p id="tset-pr-net-status" style="font-size:0.8rem; color:var(--text-muted); margin:0 0 10px;"></p>
+                                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                    <button type="button" class="btn-action-outline" onclick="saveTerminalNetworkPrinter()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                                    <button type="button" class="btn-action-outline" onclick="terminalNetAction('testNetworkPrinterConnection')"><i class="fa-solid fa-satellite-dish"></i> Test Connection</button>
+                                    <button type="button" class="btn-action-outline" onclick="terminalNetAction('testPrintNetworkPrinter')"><i class="fa-solid fa-vial"></i> Test Print</button>
+                                    <button type="button" class="btn-action-outline" style="color:#ef4444; border-color:#ef4444;" onclick="terminalForgetNetworkPrinter()"><i class="fa-solid fa-link-slash"></i> Remove</button>
+                                </div>
+                            </div>
+                        </details>
                     </div>
                 </details>
 
@@ -5025,6 +5226,18 @@
                             <label>Redeem Value (₱ discount per 1 point)</label>
                             <input type="number" id="tset-loyalty-point-value" min="0" step="0.01" placeholder="e.g. 1" autocomplete="off">
                         </div>
+                        <div class="input-field-group">
+                            <label>Extra Price Levels <small style="font-weight:normal; color:var(--text-muted);">(comma-separated, e.g. Wholesale, Reseller)</small></label>
+                            <input type="text" id="tset-price-levels" maxlength="200" placeholder="e.g. Wholesale, Reseller" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Branch Name</label>
+                            <input type="text" id="tset-branch-name" maxlength="60" placeholder="e.g. Main Branch" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Business Group Code <small style="font-weight:normal; color:var(--text-muted);">(same code on every branch you want to combine; clearing it leaves the group)</small></label>
+                            <input type="text" id="tset-branch-group-key" maxlength="120" placeholder="e.g. sarikitchen-2026" autocomplete="off">
+                        </div>
                         <button type="button" class="btn-action-global" onclick="saveTerminalStoreSalesSettings()">
                             <i class="fa-solid fa-floppy-disk"></i> Save Store &amp; Sales Settings
                         </button>
@@ -5037,6 +5250,23 @@
                         <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                             <input type="checkbox" id="tset-scanner-sound" style="width:auto;" autocomplete="off">
                             <label style="margin:0;" for="tset-scanner-sound">Barcode Scanner Sound Feedback</label>
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-dark-mode-default" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-dark-mode-default">Use Dark Mode by default (only for devices that have not chosen their own theme)</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Low-Stock Alert Threshold (units)</label>
+                            <input type="number" id="tset-low-stock-threshold" min="0" step="1" placeholder="e.g. 10" autocomplete="off">
+                        </div>
+                        <div class="input-field-group">
+                            <label>Overview Widgets</label>
+                            <div style="display:flex; flex-wrap:wrap; gap:14px; margin-top:6px;">
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-widget-salestoday" style="width:auto;" autocomplete="off"> Today's Sales &amp; Orders</label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-widget-lowstock" style="width:auto;" autocomplete="off"> Low Stock</label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-widget-topproducts" style="width:auto;" autocomplete="off"> Top Products</label>
+                                <label style="display:flex; align-items:center; gap:6px; font-weight:normal;"><input type="checkbox" id="tset-widget-recenttx" style="width:auto;" autocomplete="off"> Recent Sales</label>
+                            </div>
                         </div>
                         <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                             <input type="checkbox" id="tset-swap-terminal-layout" style="width:auto;" onchange="setTerminalLayoutSwapped(this.checked)" autocomplete="off">
@@ -5067,7 +5297,7 @@
                         </div>
                         <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:18px 0 8px;"><i class="fa-solid fa-lock"></i> Idle Auto-Lock</h4>
                         <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
-                            <input type="checkbox" id="tset-idle-lock-enabled" style="width:auto;" autocomplete="off">
+                            <input type="checkbox" id="tset-idle-lock-enabled" style="width:auto;" onchange="toggleTerminalIdleLockFields()" autocomplete="off">
                             <label style="margin:0;" for="tset-idle-lock-enabled">Lock the terminal after inactivity (requires password to resume — not a full logout)</label>
                         </div>
                         <div class="input-field-group">
@@ -5076,7 +5306,7 @@
                         </div>
                         <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:18px 0 8px;"><i class="fa-solid fa-tv"></i> Customer-Facing Display</h4>
                         <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
-                            <input type="checkbox" id="tset-customer-display-enabled" style="width:auto;" autocomplete="off">
+                            <input type="checkbox" id="tset-customer-display-enabled" style="width:auto;" onchange="toggleTerminalCustomerDisplayFields()" autocomplete="off">
                             <label style="margin:0;" for="tset-customer-display-enabled">Enable Customer-Facing Display</label>
                         </div>
                         <div class="input-field-group">
@@ -5084,6 +5314,45 @@
                             <input type="number" id="tset-customer-display-compact-threshold" min="3" max="50" step="1" placeholder="e.g. 8" autocomplete="off">
                         </div>
                         <button type="button" class="btn-action-outline" onclick="openCustomerDisplay()" style="display:block; margin-bottom:14px;"><i class="fa-solid fa-up-right-from-square"></i> Open Customer Display</button>
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:18px 0 8px;"><i class="fa-solid fa-plug"></i> Sale Webhook</h4>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-sale-webhook-enabled" style="width:auto;" onchange="toggleTerminalWebhookFields()" autocomplete="off">
+                            <label style="margin:0;" for="tset-sale-webhook-enabled">Send each completed sale to a webhook URL</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Webhook URL (http:// or https://)</label>
+                            <input type="url" id="tset-sale-webhook-url" placeholder="https://example.com/hooks/sales" autocomplete="off">
+                        </div>
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:18px 0 8px;"><i class="fa-solid fa-shield-halved"></i> Two-Factor Login</h4>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-2fa-enabled" style="width:auto;" onchange="toggleTerminal2faFields()" autocomplete="off">
+                            <label style="margin:0;" for="tset-2fa-enabled">Require an e-mailed one-time code for Admin login</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>OTP Recipient Email</label>
+                            <input type="email" id="tset-2fa-recipient-email" placeholder="owner@example.com" autocomplete="off">
+                        </div>
+                        <h4 style="display:flex; align-items:center; gap:8px; font-size:0.95rem; margin:18px 0 8px;"><i class="fa-solid fa-user-secret"></i> Fraud Detection</h4>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-fraud-detection-enabled" style="width:auto;" onchange="toggleTerminalFraudFields()" autocomplete="off">
+                            <label style="margin:0;" for="tset-fraud-detection-enabled">Flag unusual voids, refunds, discounts and after-hours sales</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Sensitivity</label>
+                            <select id="tset-fraud-sensitivity">
+                                <option value="low">Low (fewer, higher-confidence alerts)</option>
+                                <option value="medium">Medium (recommended)</option>
+                                <option value="high">High (catches more, may include false positives)</option>
+                            </select>
+                        </div>
+                        <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tset-fraud-email-enabled" style="width:auto;" autocomplete="off">
+                            <label style="margin:0;" for="tset-fraud-email-enabled">E-mail me when a fraud alert is raised</label>
+                        </div>
+                        <div class="input-field-group">
+                            <label>Fraud Alert Recipient Email</label>
+                            <input type="email" id="tset-fraud-recipient-email" placeholder="owner@example.com" autocomplete="off">
+                        </div>
                         <button type="button" class="btn-action-global" onclick="saveTerminalAdvancedSettings()">
                             <i class="fa-solid fa-floppy-disk"></i> Save Advanced Settings
                         </button>
@@ -5382,7 +5651,7 @@
 </div>
 
 <script src="bt-printer.js?v=20261021-2"></script>
-<script src="printer-manager.js?v=20261020-2"></script>
+<script src="printer-manager.js?v=20261024-1"></script>
 <script src="usb-printer.js?v=20261020-2"></script>
 <script src="faq-knowledge.js"></script>
 <script src="faq-knowledge.en.js"></script>
@@ -5390,7 +5659,122 @@
 <script src="faq-engine.js?v=20261020-1"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
 <script src="bir-wording.js?v=20261021-4"></script>
-<script src="app.js?v=20261022-1"></script>
+<script>
+/* Sidebar quick find: filters the menu as you type. It only toggles the .sb-hide / .sb-open
+   classes, so the real show/hide logic (roles, PRO locks, collapsed groups) is never touched. */
+(function () {
+    'use strict';
+    var nav, input, clearBtn, box, empty, timer = null;
+
+    function unavailable(el) {
+        // true when the item is hidden by the app itself (role permission, locked PRO feature...)
+        for (var n = el; n && n !== nav; n = n.parentElement) {
+            if (n.classList.contains('dropdown-container')) continue; // collapsed groups are not "unavailable"
+            if (n.hidden || n.classList.contains('menu-pro-hidden') || n.style.display === 'none') return true;
+        }
+        return false;
+    }
+    function textOf(el) {
+        var clone = el.cloneNode(true);
+        var junk = clone.querySelectorAll('.menu-pro-lock,.menu-pro-badge,.lowstock-bell-badge,i');
+        for (var i = 0; i < junk.length; i++) junk[i].remove();
+        return (clone.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+    function reset() {
+        var hid = nav.querySelectorAll('.sb-hide,.sb-open');
+        for (var i = 0; i < hid.length; i++) hid[i].classList.remove('sb-hide', 'sb-open');
+        empty.hidden = true;
+    }
+    function run() {
+        var q = input.value.trim().toLowerCase();
+        box.classList.toggle('has-text', q.length > 0);
+        clearBtn.hidden = q.length === 0;
+        reset();
+        if (!q) return;
+        var any = false, kids = Array.prototype.slice.call(nav.children);
+        var secHasHit = null, pendingLabel = null, pendingPro = null;
+        function flushLabel() {
+            if (pendingLabel && !secHasHit) pendingLabel.classList.add('sb-hide');
+            pendingLabel = null; secHasHit = null;
+        }
+        kids.forEach(function (el) {
+            if (el === box || el === empty) return;
+            if (el.classList.contains('menu-section-label') || el.classList.contains('menu-section-row')) {
+                flushLabel();
+                pendingLabel = el; secHasHit = false;
+                return;
+            }
+            if (el.classList.contains('menu-item')) {
+                var ok = !unavailable(el) && textOf(el).indexOf(q) !== -1;
+                el.classList.toggle('sb-hide', !ok);
+                if (ok) { any = true; secHasHit = true; }
+            } else if (el.classList.contains('menu-dropdown')) {
+                var head = el.querySelector('.menu-item-header');
+                var headHit = !unavailable(el) && head && textOf(head).indexOf(q) !== -1;
+                var subs = el.querySelectorAll('.sub-menu-item'), hits = 0;
+                for (var i = 0; i < subs.length; i++) {
+                    var s = subs[i], sok = !unavailable(s) && (headHit || textOf(s).indexOf(q) !== -1);
+                    s.classList.toggle('sb-hide', !sok);
+                    if (sok) hits++;
+                }
+                if (hits) { el.classList.add('sb-open'); any = true; secHasHit = true; }
+                else el.classList.add('sb-hide');
+            }
+        });
+        flushLabel();
+        empty.hidden = any;
+    }
+    function firstHit() {
+        return nav.querySelector('.menu-item:not(.sb-hide):not(.admin-only-nav[style*="none"]), .sub-menu-item:not(.sb-hide)');
+    }
+    function sidebarVisible() {
+        var sb = document.getElementById('app-sidebar');
+        if (!sb || getComputedStyle(sb).display === 'none') return false;
+        var r = sb.getBoundingClientRect();
+        return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
+    }
+    function init() {
+        nav = document.getElementById('sidebar-nav');
+        input = document.getElementById('sb-find-input');
+        clearBtn = document.getElementById('sb-find-clear');
+        box = document.getElementById('sb-find');
+        empty = document.getElementById('sb-empty');
+        if (!nav || !input || !clearBtn || !box || !empty) return;
+        input.addEventListener('input', function () {
+            clearTimeout(timer); timer = setTimeout(run, 60);
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') { input.value = ''; run(); input.blur(); }
+            else if (e.key === 'Enter') {
+                var hit = input.value.trim() ? firstHit() : null;
+                if (hit) {
+                    e.preventDefault();
+                    hit.click();
+                    input.value = ''; run(); input.blur();
+                }
+            }
+        });
+        clearBtn.addEventListener('click', function () { input.value = ''; run(); input.focus(); });
+        // "/" jumps to the search box (only when not typing somewhere else)
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+            var t = e.target, tag = t && t.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+            if (document.querySelector('.swal2-container, .modal-overlay.active, .modal-overlay.open')) return;
+            if (!sidebarVisible()) return;
+            e.preventDefault();
+            input.focus(); input.select();
+        });
+        // start fresh every time the mobile drawer is reopened
+        var mo = new MutationObserver(function () {
+            if (!document.body.classList.contains('sidebar-mobile-active') && input.value) { input.value = ''; run(); }
+        });
+        mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+<script src="app.js?v=20261024-3"></script>
 <script src="app1.js?v=20261013-1"></script>
 <script src="marketplace-ui.js?v=20261013-1"></script>
 

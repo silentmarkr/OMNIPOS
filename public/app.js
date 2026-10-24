@@ -2511,6 +2511,7 @@ function updateCloudBackupLockState() {
     if (getBtn) getBtn.style.display = unlocked ? 'none' : 'flex';
     if (syncBtn) syncBtn.style.display = unlocked ? 'flex' : 'none';
     if (restoreBtn) restoreBtn.style.display = unlocked ? 'flex' : 'none';
+    refreshCloudBackupContentsSummary();
     if (unlocked) {
         refreshCloudBackupSubscriptionBadge();
         startCloudBackupCostShareAutoRefresh();
@@ -15297,6 +15298,30 @@ function saveAutoOpenDrawerPreference() {
         Swal.fire({ toast:true, position:'top-end', icon:'success', title: toggle && toggle.checked ?'Auto-open cash drawer enabled' :'Auto-open cash drawer disabled', showConfirmButton:false, timer:1500 });
     }
 }
+function savePreferredPrinterPreference() {
+    const el = document.getElementById('rc-preferred-printer');
+    const value = (typeof setPreferredPrinterType === 'function') ? setPreferredPrinterType(el ? el.value : 'auto') : 'auto';
+    if (typeof updatePrinterActiveSummaryUI === 'function') updatePrinterActiveSummaryUI();
+    if (typeof Swal !=='undefined') {
+        Swal.fire({ toast:true, position:'top-end', icon:'success', title:'Printer preference saved: ' + value, showConfirmButton:false, timer:1500 });
+    }
+}
+function saveAutoPrintCopiesPreference() {
+    const el = document.getElementById('rc-auto-print-copies');
+    const n = (typeof setAutoPrintCopies === 'function') ? setAutoPrintCopies(el ? el.value : 1) : 1;
+    if (typeof Swal !=='undefined') {
+        Swal.fire({ toast:true, position:'top-end', icon:'success', title:'Auto-print copies: ' + n, showConfirmButton:false, timer:1500 });
+    }
+}
+function syncRealPrintingControlsFromStorage() {
+    const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    setChk('rc-auto-print-toggle', localStorage.getItem('omnipos_auto_print_receipt') ==='true');
+    setChk('rc-auto-cut-toggle', localStorage.getItem('omnipos_bt_autocut') !=='false');
+    setChk('rc-auto-cash-drawer-toggle', localStorage.getItem('omnipos_auto_open_drawer') !=='false');
+    if (typeof getPreferredPrinterType === 'function') setVal('rc-preferred-printer', getPreferredPrinterType());
+    if (typeof getAutoPrintCopies === 'function') setVal('rc-auto-print-copies', String(getAutoPrintCopies()));
+}
 function isAutoOpenDrawerEnabled() {
     return localStorage.getItem('omnipos_auto_open_drawer') !=='false';
 }
@@ -15307,19 +15332,9 @@ function triggerAutoOpenCashDrawerIfEnabled(paymentMethodLabel, payments) {
     if (!hasCashPortion) return;
     setTimeout(() => {
         try {
-            if (typeof isUsbPrinterReady ==='function' && isUsbPrinterReady() &&
-                typeof openCashDrawerViaUsb ==='function') {
-                openCashDrawerViaUsb();
-            } else if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
-                typeof openCashDrawerViaBluetooth ==='function') {
-                openCashDrawerViaBluetooth();
-            } else if (typeof isNetworkPrinterConfigured ==='function' && isNetworkPrinterConfigured() &&
-                typeof openCashDrawerViaNetworkPrinter ==='function') {
-                openCashDrawerViaNetworkPrinter();
-            } else if (typeof isUsbPrinterConfigured ==='function' && isUsbPrinterConfigured() &&
-                typeof openCashDrawerViaUsb ==='function') {
-                // USB printer is saved but not connected yet — openCashDrawerViaUsb() silently tries to reconnect.
-                openCashDrawerViaUsb();
+            // Printer choice (Automatic / USB / Bluetooth / WiFi-LAN) comes from Printer settings — see resolvePrinterTarget().
+            if (typeof openCashDrawerViaResolvedPrinter === 'function') {
+                Promise.resolve(openCashDrawerViaResolvedPrinter()).catch((e) => console.warn('Auto-open cash drawer failed:', e));
             }
         } catch (e) { console.warn('Auto-open cash drawer failed:', e); }
     }, 150);
@@ -15328,19 +15343,9 @@ function triggerAutoPrintIfEnabled() {
     if (localStorage.getItem('omnipos_auto_print_receipt') !=='true') return;
     setTimeout(() => {
         try {
-            if (typeof isUsbPrinterReady ==='function' && isUsbPrinterReady() &&
-                typeof printReceiptViaUsb ==='function') {
-                printReceiptViaUsb('r');
-            } else if (typeof btPrinterCharacteristic !=='undefined' && btPrinterCharacteristic &&
-                typeof printReceiptViaBluetooth ==='function') {
-                printReceiptViaBluetooth('r');
-            } else if (typeof isNetworkPrinterConfigured ==='function' && isNetworkPrinterConfigured() &&
-                typeof printReceiptViaNetworkPrinter ==='function') {
-                printReceiptViaNetworkPrinter('r');
-            } else if (typeof isUsbPrinterConfigured ==='function' && isUsbPrinterConfigured() &&
-                typeof printReceiptViaUsb ==='function') {
-                // USB printer is saved but not connected yet — printReceiptViaUsb() tries to reconnect, else explains why.
-                printReceiptViaUsb('r');
+            if (typeof printReceiptViaResolvedPrinter === 'function') {
+                const copies = (typeof getAutoPrintCopies === 'function') ? getAutoPrintCopies() : 1;
+                Promise.resolve(printReceiptViaResolvedPrinter('r', copies)).catch((e) => console.error('Auto-print failed:', e));
             } else {
                 window.print();
             }
@@ -15383,7 +15388,9 @@ async function fetchReceiptSettings() {
         const res = await authFetch(`${API_URL}/receipt-settings`);
         if (!res.ok) throw new Error('Failed to load receipt settings');
         receiptSettingsCache = await res.json();
+        window.__lastReceiptFetchOk = true;
     } catch (err) {
+        window.__lastReceiptFetchOk = false;
         console.warn('Unable to load receipt customization settings.', err);
     }
     applyReceiptBranding();
@@ -15834,6 +15841,7 @@ async function loadReceiptCustomizationPanel() {
     if (autoCutToggle) autoCutToggle.checked = localStorage.getItem('omnipos_bt_autocut') !=='false';
     const autoDrawerToggle = document.getElementById('rc-auto-cash-drawer-toggle');
     if (autoDrawerToggle) autoDrawerToggle.checked = localStorage.getItem('omnipos_auto_open_drawer') !=='false';
+    syncRealPrintingControlsFromStorage();
     const statusEl = document.getElementById('receipt-custom-status');
     const resetBtn = document.getElementById('rc-reset-counter-btn');
     const otpSenderBox = document.getElementById('rc-otp-sender-config');
@@ -16040,10 +16048,13 @@ async function saveReceiptPaperSize() {
         const data = await res.json();
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The paper size request has been submitted for Admin approval.','info');
+            await loadReceiptCustomizationPanel();
         } else if (data.success) {
             Swal.fire('Saved!', `Print/PDF page size has been set to ${paperSize}.`,'success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
             applyReceiptBranding();
+            await loadReceiptCustomizationPanel();
+            rebaselineSettingsSync();
         } else {
             Swal.fire('Error', data.message ||'Failed to save the paper size.','error');
         }
@@ -16113,6 +16124,7 @@ async function saveReceiptBarcodeSettings() {
         } else if (data.success) {
             Swal.fire('Saved!','The barcode settings have been updated.','success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
+            rebaselineSettingsSync();
             applyReceiptBranding();
         } else {
             Swal.fire('Error', data.message ||'Failed to save the barcode settings.','error');
@@ -16169,6 +16181,7 @@ async function saveReceiptAdvancedSettings() {
         } else if (data.success) {
             Swal.fire('Saved!','The advanced receipt style has been updated.','success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
+            rebaselineSettingsSync();
             applyReceiptBranding();
         } else {
             Swal.fire('Error', data.message ||'Failed to save the advanced style.','error');
@@ -16384,6 +16397,7 @@ async function saveLoyaltyQrSettings() {
         } else if (data.success) {
             Swal.fire('Saved!','The loyalty QR settings have been updated.','success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
+            rebaselineSettingsSync();
             applyReceiptBranding();
         } else {
             Swal.fire('Error', data.message ||'Failed to save the loyalty QR settings.','error');
@@ -16440,6 +16454,7 @@ async function saveModernTemplateSettings() {
         } else if (data.success) {
             Swal.fire('Saved!','The Modern Receipt Template settings have been updated.','success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
+            rebaselineSettingsSync();
             applyReceiptBranding();
         } else {
             Swal.fire('Error', data.message ||'Failed to save the Modern Receipt Template settings.','error');
@@ -16487,6 +16502,7 @@ async function saveReceiptTransactionIdFormat() {
             const info = TRANSACTION_ID_FORMAT_INFO[transactionIdSettings.format] || TRANSACTION_ID_FORMAT_INFO.xs;
             Swal.fire('Saved!', `Transaction ID Format has been set to "${info.label}".`,'success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
+            rebaselineSettingsSync();
             updateTransactionIdFormatPreview();
         } else {
             Swal.fire('Error', data.message ||'Failed to save the Transaction ID Format.','error');
@@ -16769,11 +16785,13 @@ async function saveReceiptCustomization() {
         }
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message ||'The Receipt Customization request has been submitted for Admin approval.','info');
+            await loadReceiptCustomizationPanel();
         } else if (data.success) {
             Swal.fire('Saved!','The receipt details have been updated successfully.','success');
             receiptSettingsCache = data.settings || receiptSettingsCache;
             applyReceiptBranding();
-            loadReceiptCustomizationPanel();
+            await loadReceiptCustomizationPanel();
+            rebaselineSettingsSync();
         } else {
             Swal.fire('Error', data.message ||'Failed to save the receipt details.','error');
         }
@@ -16783,20 +16801,23 @@ async function saveReceiptCustomization() {
     }
 }
 let storeSettingsCache = null;
-async function fetchStoreSettings() {
+async function fetchStoreSettings(opts) {
+    const keepOnError = !!(opts && opts.keepOnError);
     try {
         const res = await authFetch(`${API_URL}/store-settings`);
+        if (keepOnError && !res.ok) throw new Error('store-settings HTTP ' + res.status);
         storeSettingsCache = await res.json();
         try { applyReceiptBranding(); } catch (brandErr) { console.warn('applyReceiptBranding after store settings failed (non-blocking):', brandErr); }
     } catch (err) {
         console.error(err);
-        storeSettingsCache = null;
+        if (!keepOnError) storeSettingsCache = null;
     }
     return storeSettingsCache;
 }
 async function loadStoreSettingsPanel() {
     const s = await fetchStoreSettings();
     if (!s) return;
+    markSettingsPanelClean('store-settings-tab');
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     setVal('ss-currency-code', s.currencyCode);
@@ -16898,12 +16919,13 @@ async function saveStoreSettings() {
         const data = await res.json();
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message || 'The Store & Sales Settings request has been submitted for Admin approval.', 'info');
+            await loadStoreSettingsPanel();
         } else if (data.success) {
             Swal.fire('Saved!', 'Store & Sales Settings have been updated.', 'success');
             storeSettingsCache = data.settings || storeSettingsCache;
-            loadStoreSettingsPanel();
-            applyPaymentMethodVisibility();
-            try { applyReceiptBranding(); } catch (brandErr) { console.warn('applyReceiptBranding after save failed (non-blocking):', brandErr); }
+            await loadStoreSettingsPanel();
+            applyStoreSettingsToTerminal();
+            rebaselineSettingsSync();
         } else {
             Swal.fire('Error', data.message || 'Failed to save Store & Sales Settings.', 'error');
         }
@@ -17058,19 +17080,23 @@ function removePaymentQrPhoto(kind) {
     if (fileInput) fileInput.value ='';
 }
 let uxSettingsCache = null;
-async function fetchUxSettings() {
+async function fetchUxSettings(opts) {
+    const keepOnError = !!(opts && opts.keepOnError);
     try {
         const res = await authFetch(`${API_URL}/ux-settings`);
+        if (keepOnError && !res.ok) throw new Error('ux-settings HTTP ' + res.status);
         uxSettingsCache = await res.json();
     } catch (err) {
         console.error(err);
-        uxSettingsCache = null;
+        if (!keepOnError) uxSettingsCache = null;
     }
+    try { applyUxSettingsToTerminal(); } catch (applyErr) { console.warn('applyUxSettingsToTerminal failed (non-blocking):', applyErr); }
     return uxSettingsCache;
 }
 async function loadUxSettingsPanel() {
     const s = await fetchUxSettings();
     if (!s) return;
+    markSettingsPanelClean('ux-settings-tab');
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     setChecked('ux-dark-mode-default', s.darkModeDefault);
@@ -17119,10 +17145,13 @@ async function saveUxSettings() {
         const data = await res.json();
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message || 'The Appearance/UX Settings request has been submitted for Admin approval.', 'info');
+            await loadUxSettingsPanel();
         } else if (data.success) {
             Swal.fire('Saved!', 'Appearance/UX Settings have been updated.', 'success');
             uxSettingsCache = data.settings || uxSettingsCache;
-            loadUxSettingsPanel();
+            await loadUxSettingsPanel();
+            applyUxSettingsToTerminal();
+            rebaselineSettingsSync();
         } else {
             Swal.fire('Error', data.message || 'Failed to save Appearance/UX Settings.', 'error');
         }
@@ -17278,19 +17307,22 @@ function initCartPaneResize() {
 }
 document.addEventListener('DOMContentLoaded', initCartPaneResize);
 let advancedSettingsCache = null;
-async function fetchAdvancedSettings() {
+async function fetchAdvancedSettings(opts) {
+    const keepOnError = !!(opts && opts.keepOnError);
     try {
         const res = await authFetch(`${API_URL}/advanced-settings`);
+        if (keepOnError && !res.ok) throw new Error('advanced-settings HTTP ' + res.status);
         advancedSettingsCache = await res.json();
     } catch (err) {
         console.error(err);
-        advancedSettingsCache = null;
+        if (!keepOnError) advancedSettingsCache = null;
     }
     return advancedSettingsCache;
 }
 async function loadAdvancedSettingsPanel() {
     const s = await fetchAdvancedSettings();
     if (!s) return;
+    markSettingsPanelClean('advanced-settings-tab');
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     setChecked('adv-auto-logout-enabled', s.autoLogoutEnabled !== false);
@@ -17358,10 +17390,12 @@ async function saveAdvancedSettings() {
         const data = await res.json();
         if (data.success && data.pending) {
             Swal.fire('Submitted for Approval', data.message || 'The Advanced Settings request has been submitted for Admin approval.', 'info');
+            await loadAdvancedSettingsPanel();
         } else if (data.success) {
             Swal.fire('Saved!', 'Advanced Settings have been updated.', 'success');
             advancedSettingsCache = data.settings || advancedSettingsCache;
-            loadAdvancedSettingsPanel();
+            await loadAdvancedSettingsPanel();
+            rebaselineSettingsSync();
         } else {
             Swal.fire('Error', data.message || 'Failed to save Advanced Settings.', 'error');
         }
@@ -17371,112 +17405,753 @@ async function saveAdvancedSettings() {
     }
 }
 
+// =====================================================================================================================
+// Terminal Settings <-> Settings page <-> other terminals: single source of truth is the server.
+// Every field pair below is [id on the Settings page, id on the Terminal Settings modal, kind] (kind: v = value, c = checked).
+// =====================================================================================================================
+const TSET_RECEIPT_PAIRS = [
+    ['rc-form-storename', 'tset-rc-storename', 'v'],
+    ['rc-form-address', 'tset-rc-address', 'v'],
+    ['rc-form-contact', 'tset-rc-contact', 'v'],
+    ['rc-form-header', 'tset-rc-header', 'v'],
+    ['rc-form-footer', 'tset-rc-footer', 'v']
+];
+const TSET_PAPER_PAIRS = [['rc-form-papersize', 'tset-rc-papersize', 'v']];
+const TSET_LAYOUT_PAIRS = [
+    ['twset-enabled', 'tset-tw-enabled', 'c'],
+    ['twset-widthmm', 'tset-tw-widthmm', 'v']
+];
+const TSET_TXNID_PAIRS = [['rc-form-txnid-format', 'tset-rc-txnid-format', 'v']];
+const TSET_STORE_PAIRS = [
+    ['ss-currency-code', 'tset-currency-code', 'v'],
+    ['ss-tax-enabled', 'tset-tax-enabled', 'c'],
+    ['ss-tax-label', 'tset-tax-label', 'v'],
+    ['ss-tax-rate', 'tset-tax-rate', 'v'],
+    ['ss-prices-include-tax', 'tset-prices-include-tax', 'c'],
+    ['ss-pm-cash', 'tset-pm-cash', 'c'],
+    ['ss-pm-gcash', 'tset-pm-gcash', 'c'],
+    ['ss-pm-maya', 'tset-pm-maya', 'c'],
+    ['ss-pm-card', 'tset-pm-card', 'c'],
+    ['ss-pm-banktransfer', 'tset-pm-banktransfer', 'c'],
+    ['ss-senior-pwd-enabled', 'tset-senior-pwd-enabled', 'c'],
+    ['ss-senior-pwd-rate', 'tset-senior-pwd-rate', 'v'],
+    ['ss-loyalty-enabled', 'tset-loyalty-enabled', 'c'],
+    ['ss-loyalty-earn-rate', 'tset-loyalty-earn-rate', 'v'],
+    ['ss-loyalty-point-value', 'tset-loyalty-point-value', 'v'],
+    ['ss-price-levels', 'tset-price-levels', 'v'],
+    ['ss-branch-name', 'tset-branch-name', 'v'],
+    ['ss-branch-group-key', 'tset-branch-group-key', 'v']
+];
+const TSET_UX_PAIRS = [
+    ['ux-scanner-sound', 'tset-scanner-sound', 'c'],
+    ['ux-dark-mode-default', 'tset-dark-mode-default', 'c'],
+    ['ux-low-stock-threshold', 'tset-low-stock-threshold', 'v'],
+    ['ux-widget-salestoday', 'tset-widget-salestoday', 'c'],
+    ['ux-widget-lowstock', 'tset-widget-lowstock', 'c'],
+    ['ux-widget-topproducts', 'tset-widget-topproducts', 'c'],
+    ['ux-widget-recenttx', 'tset-widget-recenttx', 'c']
+];
+const TSET_ADVANCED_PAIRS = [
+    ['adv-auto-logout-enabled', 'tset-auto-logout-enabled', 'c'],
+    ['adv-auto-logout-minutes', 'tset-auto-logout-minutes', 'v'],
+    ['adv-auto-logout-show-timer', 'tset-auto-logout-show-timer', 'c'],
+    ['adv-idle-lock-enabled', 'tset-idle-lock-enabled', 'c'],
+    ['adv-idle-lock-minutes', 'tset-idle-lock-minutes', 'v'],
+    ['adv-customer-display-enabled', 'tset-customer-display-enabled', 'c'],
+    ['adv-customer-display-compact-threshold', 'tset-customer-display-compact-threshold', 'v'],
+    ['adv-sale-webhook-enabled', 'tset-sale-webhook-enabled', 'c'],
+    ['adv-sale-webhook-url', 'tset-sale-webhook-url', 'v'],
+    ['adv-2fa-enabled', 'tset-2fa-enabled', 'c'],
+    ['adv-2fa-recipient-email', 'tset-2fa-recipient-email', 'v'],
+    ['adv-fraud-detection-enabled', 'tset-fraud-detection-enabled', 'c'],
+    ['adv-fraud-sensitivity', 'tset-fraud-sensitivity', 'v'],
+    ['adv-fraud-email-enabled', 'tset-fraud-email-enabled', 'c'],
+    ['adv-fraud-recipient-email', 'tset-fraud-recipient-email', 'v']
+];
+function tsetCopyPairs(pairs, direction) {
+    pairs.forEach(([realId, tsetId, kind]) => {
+        const from = document.getElementById(direction === 'toTerminal' ? realId : tsetId);
+        const to = document.getElementById(direction === 'toTerminal' ? tsetId : realId);
+        if (!from || !to) return;
+        if (kind === 'c') to.checked = !!from.checked; else to.value = from.value;
+    });
+}
+function toggleTerminalFraudFields() {
+    const on = !!(document.getElementById('tset-fraud-detection-enabled') || {}).checked;
+    ['tset-fraud-sensitivity', 'tset-fraud-email-enabled', 'tset-fraud-recipient-email'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !on;
+    });
+}
+
+// ---- "dirty" tracking: a panel that the user has started editing is never overwritten by a background refresh ----
+const SETTINGS_PANEL_IDS = ['store-settings-tab', 'ux-settings-tab', 'advanced-settings-tab', 'terminal-settings-modal'];
+function markSettingsPanelClean(panelId) {
+    const el = document.getElementById(panelId);
+    if (el) el.removeAttribute('data-settings-dirty');
+}
+function isSettingsPanelDirty(panelId) {
+    const el = document.getElementById(panelId);
+    return !!(el && el.getAttribute('data-settings-dirty') === '1');
+}
+function isSettingsPanelVisible(panelId) {
+    const el = document.getElementById(panelId);
+    if (!el) return false;
+    if (panelId === 'terminal-settings-modal') return !!el.style.display && el.style.display !== 'none';
+    return el.offsetParent !== null;
+}
+function installSettingsDirtyTracking() {
+    if (window.__settingsDirtyTrackingInstalled) return;
+    window.__settingsDirtyTrackingInstalled = true;
+    SETTINGS_PANEL_IDS.forEach((panelId) => {
+        const el = document.getElementById(panelId);
+        if (!el) return;
+        const mark = (evt) => {
+            if (evt && evt.isTrusted === false) return;
+            // Device-only controls (printer section) are applied immediately and never need protecting from a refresh.
+            if (evt && evt.target && typeof evt.target.closest === 'function' && evt.target.closest('[data-no-dirty]')) return;
+            el.setAttribute('data-settings-dirty', '1');
+        };
+        el.addEventListener('input', mark, true);
+        el.addEventListener('change', mark, true);
+    });
+}
+
+// ---- Apply the cached settings to the live POS terminal (not only to the Settings forms) ----
+function applyStoreSettingsToTerminal() {
+    try { applyPaymentMethodVisibility(); } catch (e) { console.warn('applyPaymentMethodVisibility failed (non-blocking):', e); }
+    try { applyReceiptBranding(); } catch (e) { console.warn('applyReceiptBranding failed (non-blocking):', e); }
+    try {
+        if (typeof updateCartTotals === 'function' && typeof shoppingCart !== 'undefined' && Array.isArray(shoppingCart) && shoppingCart.length) updateCartTotals();
+    } catch (e) { console.warn('updateCartTotals after settings sync failed (non-blocking):', e); }
+}
+function applyUxSettingsToTerminal() {
+    const s = uxSettingsCache;
+    if (!s) return;
+    const w = s.dashboardWidgets || {};
+    const setHidden = (el, hidden) => {
+        if (!el) return;
+        if (hidden) {
+            el.setAttribute('data-ux-widget-hidden', '1');
+            el.style.display = 'none';
+        } else if (el.getAttribute('data-ux-widget-hidden') === '1') {
+            el.removeAttribute('data-ux-widget-hidden');
+            el.style.display = '';
+        }
+    };
+    const metricCardOf = (id) => { const el = document.getElementById(id); return el ? el.closest('.metric-card') : null; };
+    const panelOf = (id) => { const el = document.getElementById(id); return el ? el.closest('.card') : null; };
+    const salesOff = w.salesToday === false;
+    setHidden(metricCardOf('metric-ov-sales'), salesOff);
+    setHidden(metricCardOf('metric-ov-orders'), salesOff);
+    const lowOff = w.lowStock === false;
+    setHidden(metricCardOf('metric-ov-lowstock'), lowOff);
+    setHidden(document.querySelector('#view-overview .overview-attention-panel'), lowOff);
+    const topOff = w.topProducts === false;
+    setHidden(metricCardOf('metric-ov-top-seller'), topOff);
+    setHidden(panelOf('overview-top-products-list'), topOff);
+    setHidden(document.querySelector('#view-overview .overview-recent-panel'), w.recentTransactions === false);
+    // "Default to dark mode" only applies to a device that has not picked its own theme yet.
+    try {
+        if (typeof THEME_CATALOG !== 'undefined' && typeof applyTheme === 'function'
+            && !localStorage.getItem('omnipos_theme') && !localStorage.getItem('omnipos_darkmode')) {
+            const wantedId = s.darkModeDefault ? 'dark' : 'day';
+            const wanted = THEME_CATALOG.find(t => t.id === wantedId);
+            if (wanted && isThemeUnlocked(wanted)) {
+                applyTheme(wantedId, { persist: false });
+                if (typeof renderThemeMenu === 'function') renderThemeMenu();
+                if (typeof updateHeaderDayDarkModeUI === 'function') updateHeaderDayDarkModeUI();
+            }
+        }
+    } catch (themeErr) { console.warn('Default theme sync failed (non-blocking):', themeErr); }
+}
+
+// ---- Live sync watcher: notices changes made on another terminal / by an approved request ----
+const SETTINGS_SYNC_INTERVAL_MS = 20000;
+const SETTINGS_SECTION_LABELS = { store: 'Store & Sales', ux: 'Appearance', advanced: 'Advanced', receipt: 'Print Details' };
+let settingsSyncRevisions = null;
+let settingsSyncTimer = null;
+let settingsSyncBusy = false;
+function startSettingsSyncWatcher() {
+    installSettingsDirtyTracking();
+    if (settingsSyncTimer) return;
+    settingsSyncTimer = setInterval(() => { checkSettingsSync(); }, SETTINGS_SYNC_INTERVAL_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSettingsSync(); });
+    window.addEventListener('online', () => { checkSettingsSync(); });
+    window.addEventListener('focus', () => { checkSettingsSync(); });
+    checkSettingsSync();
+}
+function rebaselineSettingsSync() {
+    // Called after THIS terminal saved something, so its own change is not treated as "changed elsewhere".
+    return checkSettingsSync({ baselineOnly: true });
+}
+async function refreshSettingsSections(keys) {
+    const tasks = [];
+    if (keys.includes('store')) tasks.push(fetchStoreSettings({ keepOnError: true }).then(() => applyStoreSettingsToTerminal()));
+    if (keys.includes('ux')) tasks.push(fetchUxSettings({ keepOnError: true }));
+    if (keys.includes('advanced')) {
+        tasks.push(fetchAdvancedSettings({ keepOnError: true }).then(() => {
+            try { setupIdleAutoLock(); } catch (e) { console.warn(e); }
+            try { refreshAutoLogoutFromSettings(); } catch (e) { console.warn(e); }
+        }));
+    }
+    if (keys.includes('receipt')) tasks.push(Promise.resolve(fetchReceiptSettings()).catch(() => {}));
+    await Promise.allSettled(tasks);
+    // Open forms: reload them only when the user has not started editing; otherwise just tell them.
+    const panelLoaders = [
+        ['store', 'store-settings-tab', loadStoreSettingsPanel],
+        ['ux', 'ux-settings-tab', loadUxSettingsPanel],
+        ['advanced', 'advanced-settings-tab', loadAdvancedSettingsPanel]
+    ];
+    let staleNote = false;
+    for (const [key, panelId, loader] of panelLoaders) {
+        if (!keys.includes(key) || !isSettingsPanelVisible(panelId)) continue;
+        if (isSettingsPanelDirty(panelId)) { staleNote = true; continue; }
+        try { await loader(); } catch (e) { console.warn('Settings panel refresh failed (non-blocking):', e); }
+    }
+    if (isSettingsPanelVisible('terminal-settings-modal')) {
+        if (isSettingsPanelDirty('terminal-settings-modal')) staleNote = true;
+        else { try { await loadTerminalSettingsModalData(); } catch (e) { console.warn('Terminal Settings refresh failed (non-blocking):', e); } }
+    }
+    return staleNote;
+}
+async function checkSettingsSync(opts) {
+    opts = opts || {};
+    if (settingsSyncBusy) return;
+    if (!currentUser || !localStorage.getItem('omnipos_token')) { settingsSyncRevisions = null; return; }
+    if (document.hidden && !opts.force && !opts.baselineOnly) return;
+    settingsSyncBusy = true;
+    try {
+        const res = await authFetch(`${API_URL}/settings-sync`);
+        if (!res.ok) throw new Error('settings-sync HTTP ' + res.status);
+        const data = await res.json();
+        if (!data || !data.success || !data.sections) throw new Error('settings-sync bad payload');
+        const next = {};
+        Object.keys(data.sections).forEach((k) => { next[k] = data.sections[k].rev; });
+        const prev = settingsSyncRevisions;
+        settingsSyncRevisions = next;
+        if (opts.baselineOnly) { updateSettingsSyncStatusUi(data, [], false); return; }
+        const keys = opts.force ? Object.keys(next) : (prev ? Object.keys(next).filter((k) => prev[k] !== next[k]) : []);
+        let staleNote = false;
+        if (keys.length) staleNote = await refreshSettingsSections(keys);
+        updateSettingsSyncStatusUi(data, keys, false, staleNote);
+    } catch (err) {
+        console.warn('Settings sync check failed (will retry):', err);
+        updateSettingsSyncStatusUi(null, [], true);
+    } finally {
+        settingsSyncBusy = false;
+    }
+}
+function updateSettingsSyncStatusUi(data, refreshedKeys, errored, staleNote) {
+    const el = document.getElementById('tset-sync-status');
+    if (!el) return;
+    if (errored || !data) {
+        el.style.color = '#f59e0b';
+        el.textContent = 'Hindi ma-check ang sync ngayon (offline o mabagal ang server). Gagamitin muna ang huling na-load na settings; susubukan ulit ito.';
+        return;
+    }
+    const fmt = (sec) => (sec && sec.updatedAt) ? new Date(sec.updatedAt).toLocaleString() : '—';
+    const sec = data.sections || {};
+    let text = `✓ Naka-sync sa server (huling check: ${new Date().toLocaleTimeString()}). Store & Sales: ${fmt(sec.store)} • Appearance: ${fmt(sec.ux)} • Advanced: ${fmt(sec.advanced)}`;
+    if (refreshedKeys && refreshedKeys.length) {
+        text += ` — Na-refresh: ${refreshedKeys.map(k => SETTINGS_SECTION_LABELS[k] || k).join(', ')}.`;
+    }
+    if (staleNote) text += ' May mas bagong settings mula sa ibang terminal — i-click ang "Sync Now" para i-load (mawawala ang hindi pa na-save na pagbabago).';
+    el.style.color = staleNote ? '#f59e0b' : '#16a34a';
+    el.textContent = text;
+}
+async function syncSettingsNowFromTerminalModal() {
+    const btn = document.getElementById('tset-sync-now-btn');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Syncing…'; }
+    try {
+        settingsSyncBusy = false;
+        const modal = document.getElementById('terminal-settings-modal');
+        if (modal) modal.removeAttribute('data-settings-dirty');
+        ['store-settings-tab', 'ux-settings-tab', 'advanced-settings-tab'].forEach(markSettingsPanelClean);
+        await checkSettingsSync({ force: true });
+        if (isSettingsPanelVisible('terminal-settings-modal')) await loadTerminalSettingsModalData();
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
+}
+
+// ---- Terminal Settings modal: mirror (Settings page -> modal) and save (modal -> Settings page -> server) ----
 function mirrorRealSettingsIntoTerminalModal() {
-    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
-    const copyChecked = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.checked = f.checked; };
-    copyVal('rc-form-storename', 'tset-rc-storename');
-    copyVal('rc-form-address', 'tset-rc-address');
-    copyVal('rc-form-contact', 'tset-rc-contact');
-    copyVal('rc-form-header', 'tset-rc-header');
-    copyVal('rc-form-footer', 'tset-rc-footer');
-    copyVal('rc-form-papersize', 'tset-rc-papersize');
-    copyVal('ss-currency-code', 'tset-currency-code');
-    copyChecked('ss-tax-enabled', 'tset-tax-enabled');
-    copyVal('ss-tax-label', 'tset-tax-label');
-    copyVal('ss-tax-rate', 'tset-tax-rate');
-    copyChecked('ss-prices-include-tax', 'tset-prices-include-tax');
-    copyChecked('ss-pm-cash', 'tset-pm-cash');
-    copyChecked('ss-pm-gcash', 'tset-pm-gcash');
-    copyChecked('ss-pm-maya', 'tset-pm-maya');
-    copyChecked('ss-pm-card', 'tset-pm-card');
-    copyChecked('ss-pm-banktransfer', 'tset-pm-banktransfer');
-    copyChecked('ss-senior-pwd-enabled', 'tset-senior-pwd-enabled');
-    copyVal('ss-senior-pwd-rate', 'tset-senior-pwd-rate');
-    copyChecked('ss-loyalty-enabled', 'tset-loyalty-enabled');
-    copyVal('ss-loyalty-earn-rate', 'tset-loyalty-earn-rate');
-    copyVal('ss-loyalty-point-value', 'tset-loyalty-point-value');
-    copyChecked('ux-scanner-sound', 'tset-scanner-sound');
+    [TSET_RECEIPT_PAIRS, TSET_PAPER_PAIRS, TSET_LAYOUT_PAIRS, TSET_TXNID_PAIRS, TSET_STORE_PAIRS, TSET_UX_PAIRS, TSET_ADVANCED_PAIRS]
+        .forEach((pairs) => tsetCopyPairs(pairs, 'toTerminal'));
     const swapCb = document.getElementById('tset-swap-terminal-layout');
     if (swapCb && typeof getTerminalLayoutSwapped === 'function') swapCb.checked = getTerminalLayoutSwapped();
-    copyChecked('adv-auto-logout-enabled', 'tset-auto-logout-enabled');
-    copyVal('adv-auto-logout-minutes', 'tset-auto-logout-minutes');
-    copyChecked('adv-auto-logout-show-timer', 'tset-auto-logout-show-timer');
     toggleAutoLogoutFields('tset');
-    copyChecked('adv-idle-lock-enabled', 'tset-idle-lock-enabled');
-    copyVal('adv-idle-lock-minutes', 'tset-idle-lock-minutes');
-    copyChecked('adv-customer-display-enabled', 'tset-customer-display-enabled');
-    copyVal('adv-customer-display-compact-threshold', 'tset-customer-display-compact-threshold');
+    toggleTerminalFraudFields();
+    toggleTerminalIdleLockFields();
+    toggleTerminalCustomerDisplayFields();
+    toggleTerminalWebhookFields();
+    toggleTerminal2faFields();
+    onTerminalModernWidthInput(true);
+    onTerminalTxnIdFormatChange();
     applyVatComplianceLockUi();
+    mirrorTerminalPrinterSettings();
+    markSettingsPanelClean('terminal-settings-modal');
     const statusEl = document.getElementById('terminal-settings-status');
     if (statusEl) statusEl.textContent = '';
 }
+// Which sections were really loaded from the server the last time the modal was filled. A save for a section that
+// failed to load is refused, so blank/default form values can never overwrite the settings stored on the server.
+let tsetSectionsLoaded = { receipt: false, store: false, ux: false, advanced: false };
 async function loadTerminalSettingsModalData() {
-    await Promise.all([
+    const results = await Promise.allSettled([
         loadReceiptCustomizationPanel(),
         loadStoreSettingsPanel(),
         loadUxSettingsPanel(),
         loadAdvancedSettingsPanel()
     ]);
+    results.forEach((r) => { if (r.status === 'rejected') console.warn('Terminal Settings section failed to load:', r.reason); });
+    tsetSectionsLoaded = {
+        receipt: results[0].status === 'fulfilled' && window.__lastReceiptFetchOk !== false && !!receiptSettingsCache,
+        store: results[1].status === 'fulfilled' && !!storeSettingsCache,
+        ux: results[2].status === 'fulfilled' && !!uxSettingsCache,
+        advanced: results[3].status === 'fulfilled' && !!advancedSettingsCache
+    };
     mirrorRealSettingsIntoTerminalModal();
+    const statusEl = document.getElementById('terminal-settings-status');
+    const missing = Object.keys(tsetSectionsLoaded).filter((k) => !tsetSectionsLoaded[k]);
+    if (statusEl && missing.length) {
+        statusEl.style.color = '#f59e0b';
+        statusEl.textContent = 'Hindi ma-load mula sa server: ' + missing.map((k) => SETTINGS_SECTION_LABELS[k] || k).join(', ') + '. Naka-lock ang pag-save ng mga ito hanggang makapag-Sync Now.';
+    } else if (statusEl) {
+        statusEl.style.color = 'var(--text-muted)';
+    }
 }
+const TSET_SECTION_ERROR_LABELS = { receipt: 'Receipt', store: 'Store & Sales', ux: 'Appearance', advanced: 'Advanced' };
+function tsetEnsureLoaded(key) {
+    if (tsetSectionsLoaded[key]) return true;
+    Swal.fire('Hindi Pa Na-load', `Hindi pa na-load mula sa server ang ${TSET_SECTION_ERROR_LABELS[key] || key} settings, kaya hindi muna ito ise-save (para hindi mapalitan ng blangko ang tunay na settings). I-click ang "Sync Now" at subukan ulit.`, 'warning');
+    return false;
+}
+function tsetFail(message, fieldId) {
+    Swal.fire('Check the Entry', message, 'warning');
+    const el = fieldId ? document.getElementById(fieldId) : null;
+    if (el && typeof el.focus === 'function') { try { el.focus(); } catch (e) { /* ignore */ } }
+    return false;
+}
+let tsetSaveBusy = false;
+async function tsetGuardedSave(fn) {
+    if (tsetSaveBusy) return;
+    tsetSaveBusy = true;
+    const modal = document.getElementById('terminal-settings-modal');
+    const btns = modal ? Array.from(modal.querySelectorAll('button[onclick^="saveTerminal"]')) : [];
+    btns.forEach((b) => { b.disabled = true; });
+    try { await fn(); }
+    finally { btns.forEach((b) => { b.disabled = false; }); tsetSaveBusy = false; }
+}
+const tsetVal = (id) => { const el = document.getElementById(id); return el ? String(el.value == null ? '' : el.value).trim() : ''; };
+const tsetChk = (id) => { const el = document.getElementById(id); return !!(el && el.checked); };
+const TSET_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function validateTerminalReceipt() {
+    if (!tsetVal('tset-rc-storename')) return tsetFail('Store Name is required.', 'tset-rc-storename');
+    return true;
+}
+function validateTerminalStoreSales() {
+    const rateOk = (id, label) => {
+        const v = tsetVal(id);
+        if (v === '') return true;
+        const n = Number(v);
+        return (Number.isFinite(n) && n >= 0 && n <= 100) || tsetFail(`${label} must be a number from 0 to 100.`, id);
+    };
+    const taxField = document.getElementById('tset-tax-rate');
+    if (!(taxField && taxField.disabled) && !rateOk('tset-tax-rate', 'Tax Rate')) return false;
+    if (!rateOk('tset-senior-pwd-rate', 'Senior/PWD Discount Rate')) return false;
+    if (tsetChk('tset-loyalty-enabled')) {
+        const earn = Number(tsetVal('tset-loyalty-earn-rate'));
+        if (!(Number.isFinite(earn) && earn > 0)) return tsetFail('Loyalty Earn Rate (₱ per point) must be greater than 0.', 'tset-loyalty-earn-rate');
+    }
+    const pv = tsetVal('tset-loyalty-point-value');
+    if (pv !== '' && !(Number.isFinite(Number(pv)) && Number(pv) >= 0)) return tsetFail('Loyalty Redeem Value cannot be negative.', 'tset-loyalty-point-value');
+    return true;
+}
+function validateTerminalAppearance() {
+    const v = tsetVal('tset-low-stock-threshold');
+    if (v !== '' && !(Number.isInteger(Number(v)) && Number(v) >= 0)) return tsetFail('Low-Stock Alert Threshold must be a whole number, 0 or higher.', 'tset-low-stock-threshold');
+    return true;
+}
+function validateTerminalAdvanced() {
+    const inRange = (id, label, min, max) => {
+        const n = Number(tsetVal(id));
+        return (Number.isInteger(n) && n >= min && n <= max) || tsetFail(`${label} must be a whole number from ${min} to ${max}.`, id);
+    };
+    if (tsetChk('tset-auto-logout-enabled') && !inRange('tset-auto-logout-minutes', 'Auto Logout minutes', 1, 480)) return false;
+    if (tsetChk('tset-idle-lock-enabled') && !inRange('tset-idle-lock-minutes', 'Idle Lock minutes', 1, 120)) return false;
+    if (tsetChk('tset-customer-display-enabled') && !inRange('tset-customer-display-compact-threshold', 'Compact View Threshold', 3, 50)) return false;
+    if (tsetChk('tset-sale-webhook-enabled') && !/^https?:\/\/\S+$/i.test(tsetVal('tset-sale-webhook-url'))) return tsetFail('Enter a valid http:// or https:// Webhook URL.', 'tset-sale-webhook-url');
+    if (tsetChk('tset-2fa-enabled') && !TSET_EMAIL_RE.test(tsetVal('tset-2fa-recipient-email'))) return tsetFail('Enter a valid OTP Recipient Email to use Two-Factor Login.', 'tset-2fa-recipient-email');
+    if (tsetChk('tset-fraud-detection-enabled') && tsetChk('tset-fraud-email-enabled') && !TSET_EMAIL_RE.test(tsetVal('tset-fraud-recipient-email'))) return tsetFail('Enter a valid Fraud Alert Recipient Email to receive e-mail alerts.', 'tset-fraud-recipient-email');
+    return true;
+}
+function toggleTerminalIdleLockFields() {
+    const el = document.getElementById('tset-idle-lock-minutes');
+    if (el) el.disabled = !tsetChk('tset-idle-lock-enabled');
+}
+function toggleTerminalCustomerDisplayFields() {
+    const el = document.getElementById('tset-customer-display-compact-threshold');
+    if (el) el.disabled = !tsetChk('tset-customer-display-enabled');
+}
+function toggleTerminalWebhookFields() {
+    const el = document.getElementById('tset-sale-webhook-url');
+    if (el) el.disabled = !tsetChk('tset-sale-webhook-enabled');
+}
+function toggleTerminal2faFields() {
+    const el = document.getElementById('tset-2fa-recipient-email');
+    if (el) el.disabled = !tsetChk('tset-2fa-enabled');
+}
+// Each save below waits for the server answer AND for the Settings page to reload from the server, then re-mirrors, so
+// the modal always shows what the server really stored (e.g. values normalised by the server, VAT lock, pending approval).
 async function saveTerminalReceiptSettings() {
-    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
-    copyVal('tset-rc-storename', 'rc-form-storename');
-    copyVal('tset-rc-address', 'rc-form-address');
-    copyVal('tset-rc-contact', 'rc-form-contact');
-    copyVal('tset-rc-header', 'rc-form-header');
-    copyVal('tset-rc-footer', 'rc-form-footer');
-    await saveReceiptCustomization();
-    mirrorRealSettingsIntoTerminalModal();
+    await tsetGuardedSave(async () => {
+        if (!tsetEnsureLoaded('receipt') || !validateTerminalReceipt()) return;
+        tsetCopyPairs(TSET_RECEIPT_PAIRS, 'toReal');
+        await saveReceiptCustomization();
+        mirrorRealSettingsIntoTerminalModal();
+    });
 }
 async function saveTerminalReceiptPaperSize() {
-    const f = document.getElementById('tset-rc-papersize');
-    const t = document.getElementById('rc-form-papersize');
-    if (f && t) t.value = f.value;
-    await saveReceiptPaperSize();
-    mirrorRealSettingsIntoTerminalModal();
+    await tsetGuardedSave(async () => {
+        if (!tsetEnsureLoaded('receipt')) return;
+        tsetCopyPairs(TSET_PAPER_PAIRS, 'toReal');
+        await saveReceiptPaperSize();
+        mirrorRealSettingsIntoTerminalModal();
+    });
+}
+function onTerminalModernWidthInput(skipCopy) {
+    const range = document.getElementById('tset-tw-widthmm');
+    const label = document.getElementById('tset-tw-widthmm-val');
+    if (label && range) label.textContent = range.value || '57';
+}
+async function saveTerminalModernTemplate() {
+    await tsetGuardedSave(async () => {
+        if (!tsetEnsureLoaded('receipt')) return;
+        const w = Number(tsetVal('tset-tw-widthmm'));
+        if (!(Number.isFinite(w) && w >= 40 && w <= 80)) { tsetFail('Template width must be between 40 and 80 mm.', 'tset-tw-widthmm'); return; }
+        tsetCopyPairs(TSET_LAYOUT_PAIRS, 'toReal');
+        await saveModernTemplateSettings();
+        mirrorRealSettingsIntoTerminalModal();
+    });
+}
+function onTerminalTxnIdFormatChange() {
+    const sel = document.getElementById('tset-rc-txnid-format');
+    const prev = document.getElementById('tset-txnid-preview');
+    if (!sel || !prev || typeof generateTransactionId !== 'function') return;
+    prev.textContent = 'Sample: ' + generateTransactionId(sel.value);
+}
+async function saveTerminalTransactionIdFormat() {
+    await tsetGuardedSave(async () => {
+        if (!tsetEnsureLoaded('receipt')) return;
+        tsetCopyPairs(TSET_TXNID_PAIRS, 'toReal');
+        await saveReceiptTransactionIdFormat();
+        mirrorRealSettingsIntoTerminalModal();
+    });
 }
 async function saveTerminalStoreSalesSettings() {
-    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
-    const copyChecked = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.checked = f.checked; };
-    copyVal('tset-currency-code', 'ss-currency-code');
-    copyChecked('tset-tax-enabled', 'ss-tax-enabled');
-    copyVal('tset-tax-label', 'ss-tax-label');
-    copyVal('tset-tax-rate', 'ss-tax-rate');
-    copyChecked('tset-prices-include-tax', 'ss-prices-include-tax');
-    copyChecked('tset-pm-cash', 'ss-pm-cash');
-    copyChecked('tset-pm-gcash', 'ss-pm-gcash');
-    copyChecked('tset-pm-maya', 'ss-pm-maya');
-    copyChecked('tset-pm-card', 'ss-pm-card');
-    copyChecked('tset-pm-banktransfer', 'ss-pm-banktransfer');
-    copyChecked('tset-senior-pwd-enabled', 'ss-senior-pwd-enabled');
-    copyVal('tset-senior-pwd-rate', 'ss-senior-pwd-rate');
-    copyChecked('tset-loyalty-enabled', 'ss-loyalty-enabled');
-    copyVal('tset-loyalty-earn-rate', 'ss-loyalty-earn-rate');
-    copyVal('tset-loyalty-point-value', 'ss-loyalty-point-value');
-    await saveStoreSettings();
-    mirrorRealSettingsIntoTerminalModal();
+    await tsetGuardedSave(async () => {
+        if (!tsetEnsureLoaded('store') || !validateTerminalStoreSales()) return;
+        tsetCopyPairs(TSET_STORE_PAIRS, 'toReal');
+        await saveStoreSettings();
+        mirrorRealSettingsIntoTerminalModal();
+    });
 }
 async function saveTerminalAppearanceSettings() {
-    const f = document.getElementById('tset-scanner-sound');
-    const t = document.getElementById('ux-scanner-sound');
-    if (f && t) t.checked = f.checked;
-    await saveUxSettings();
-    mirrorRealSettingsIntoTerminalModal();
+    await tsetGuardedSave(async () => {
+        if (!tsetEnsureLoaded('ux') || !validateTerminalAppearance()) return;
+        tsetCopyPairs(TSET_UX_PAIRS, 'toReal');
+        await saveUxSettings();
+        mirrorRealSettingsIntoTerminalModal();
+    });
 }
 async function saveTerminalAdvancedSettings() {
-    const copyVal = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.value = f.value; };
-    const copyChecked = (fromId, toId) => { const f = document.getElementById(fromId), t = document.getElementById(toId); if (f && t) t.checked = f.checked; };
-    copyChecked('tset-auto-logout-enabled', 'adv-auto-logout-enabled');
-    copyVal('tset-auto-logout-minutes', 'adv-auto-logout-minutes');
-    copyChecked('tset-auto-logout-show-timer', 'adv-auto-logout-show-timer');
-    copyChecked('tset-idle-lock-enabled', 'adv-idle-lock-enabled');
-    copyVal('tset-idle-lock-minutes', 'adv-idle-lock-minutes');
-    copyChecked('tset-customer-display-enabled', 'adv-customer-display-enabled');
-    copyVal('tset-customer-display-compact-threshold', 'adv-customer-display-compact-threshold');
-    await saveAdvancedSettings();
-    mirrorRealSettingsIntoTerminalModal();
+    await tsetGuardedSave(async () => {
+        if (!tsetEnsureLoaded('advanced') || !validateTerminalAdvanced()) return;
+        tsetCopyPairs(TSET_ADVANCED_PAIRS, 'toReal');
+        await saveAdvancedSettings();
+        mirrorRealSettingsIntoTerminalModal();
+    });
 }
+
+// =====================================================================================================================
+// Terminal Settings modal > Printer & Printing. Device-only: a printer is attached to ONE terminal, so these use the same
+// localStorage keys as Settings > Receipt Customization > Printing Preferences / Printer Device Settings. Both screens
+// therefore always show the same values, and the printing code (resolvePrinterTarget in printer-manager.js) reads them.
+// =====================================================================================================================
+function tsetPrinterToast(title, icon) {
+    if (typeof Swal !== 'undefined') Swal.fire({ toast: true, position: 'top-end', icon: icon || 'success', title, showConfirmButton: false, timer: 1700 });
+}
+function populateTerminalPrinterDropdowns() {
+    const fill = (selectId, presets) => {
+        const el = document.getElementById(selectId);
+        if (!el || el.dataset.populated === 'true' || !Array.isArray(presets)) return;
+        presets.forEach((p) => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.label;
+            el.appendChild(opt);
+        });
+        el.dataset.populated = 'true';
+    };
+    if (typeof PRINTER_BT_BRAND_PRESETS !== 'undefined') fill('tset-pr-bt-brand', PRINTER_BT_BRAND_PRESETS);
+    if (typeof PRINTER_NET_BRAND_PRESETS !== 'undefined') fill('tset-pr-net-brand', PRINTER_NET_BRAND_PRESETS);
+}
+function tsetCopyUsbServerTargetsFromReal() {
+    const real = document.getElementById('usb-printer-server-target');
+    const mine = document.getElementById('tset-pr-usb-server-target');
+    if (!real || !mine) return;
+    mine.innerHTML = '';
+    Array.from(real.options).forEach((o) => {
+        const opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.textContent;
+        mine.appendChild(opt);
+    });
+    mine.value = real.value;
+}
+function mirrorTerminalPrinterSettings() {
+    try {
+        populateTerminalPrinterDropdowns();
+        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+        setVal('tset-pr-preferred', typeof getPreferredPrinterType === 'function' ? getPreferredPrinterType() : 'auto');
+        setChk('tset-pr-auto-print', localStorage.getItem('omnipos_auto_print_receipt') === 'true');
+        setChk('tset-pr-auto-drawer', localStorage.getItem('omnipos_auto_open_drawer') !== 'false');
+        setChk('tset-pr-auto-cut', localStorage.getItem('omnipos_bt_autocut') !== 'false');
+        setVal('tset-pr-copies', typeof getAutoPrintCopies === 'function' ? String(getAutoPrintCopies()) : '1');
+
+        // USB
+        const usbMode = (typeof getUsbPrinterMode === 'function') ? getUsbPrinterMode() : 'webusb';
+        setVal('tset-pr-usb-mode', usbMode);
+        if (typeof getUsbPrinterBaudRate === 'function') setVal('tset-pr-usb-baud', String(getUsbPrinterBaudRate()));
+        const baudWrap = document.getElementById('tset-pr-usb-baud-wrap');
+        const serverWrap = document.getElementById('tset-pr-usb-server-wrap');
+        if (baudWrap) baudWrap.style.display = usbMode === 'webserial' ? '' : 'none';
+        if (serverWrap) serverWrap.style.display = usbMode === 'server' ? '' : 'none';
+        if (usbMode === 'server') tsetCopyUsbServerTargetsFromReal();
+        const usbStatus = document.getElementById('tset-pr-usb-status');
+        if (usbStatus) {
+            const configured = (typeof isUsbPrinterConfigured === 'function') && isUsbPrinterConfigured();
+            const ready = configured && (typeof isUsbPrinterReady === 'function') && isUsbPrinterReady();
+            usbStatus.textContent = configured
+                ? `Naka-set up: ${getUsbPrinterDisplayName()} — ${ready ? 'konektado' : 'hindi pa konektado (isaksak o i-Pair ulit)'}`
+                : 'Walang naka-set up na USB printer.';
+        }
+
+        // Bluetooth
+        const btBrandKey = (typeof PRINTER_BT_BRAND_STORAGE_KEY !== 'undefined') ? PRINTER_BT_BRAND_STORAGE_KEY : 'omnipos_bt_printer_brand';
+        let btBrand = localStorage.getItem(btBrandKey) || 'generic-18f0';
+        const btSel = document.getElementById('tset-pr-bt-brand');
+        if (btSel) { btSel.value = btBrand; if (btSel.value !== btBrand) { btBrand = btSel.value; } }
+        tsetRenderBtBrandNote(btBrand);
+        if (typeof getBtPrinterUuids === 'function') {
+            const u = getBtPrinterUuids();
+            setVal('tset-pr-bt-service', u.serviceUuid || '');
+            setVal('tset-pr-bt-char', u.charUuid || '');
+        }
+        const btStatus = document.getElementById('tset-pr-bt-status');
+        if (btStatus) {
+            const a = (typeof getPrinterAvailability === 'function') ? getPrinterAvailability() : { btSaved: false };
+            btStatus.textContent = !(typeof isWebBluetoothSupported === 'function' && isWebBluetoothSupported())
+                ? 'Hindi supported ng browser na ito ang Web Bluetooth.'
+                : (a.btSaved ? `${a.btName} — ${a.btConnected ? 'konektado' : 'naka-pair dati, kailangang i-reconnect'}` : 'Walang naka-pair na Bluetooth printer.');
+        }
+
+        // WiFi / LAN
+        if (typeof getNetworkPrinterSettings === 'function') {
+            const n = getNetworkPrinterSettings();
+            setVal('tset-pr-net-conn', n.connType);
+            setVal('tset-pr-net-brand', n.brand);
+            setVal('tset-pr-net-host', n.host);
+            setVal('tset-pr-net-port', n.host ? n.port : (document.getElementById('tset-pr-net-port').value || ''));
+            const netStatus = document.getElementById('tset-pr-net-status');
+            if (netStatus) netStatus.textContent = n.host ? `Naka-set up: ${n.host}:${n.port} (${n.connType === 'lan' ? 'LAN Cable' : 'WiFi'})` : 'Walang na-set up na Network Printer.';
+        }
+        if (typeof updatePrinterActiveSummaryUI === 'function') updatePrinterActiveSummaryUI();
+    } catch (err) {
+        console.warn('mirrorTerminalPrinterSettings failed (non-blocking):', err);
+    }
+}
+function tsetRenderBtBrandNote(brandId) {
+    const note = document.getElementById('tset-pr-bt-brand-note');
+    if (!note || typeof PRINTER_BT_BRAND_PRESETS === 'undefined') return;
+    const preset = PRINTER_BT_BRAND_PRESETS.find((p) => p.id === brandId) || PRINTER_BT_BRAND_PRESETS[0];
+    note.textContent = (preset && preset.note) || '';
+    note.style.color = preset && preset.unsupported ? '#ef4444' : 'var(--text-muted)';
+}
+function saveTerminalPrinterPreference() {
+    try {
+        const g = (id) => document.getElementById(id);
+        if (typeof setPreferredPrinterType === 'function') setPreferredPrinterType(g('tset-pr-preferred').value);
+        localStorage.setItem('omnipos_auto_print_receipt', g('tset-pr-auto-print').checked ? 'true' : 'false');
+        localStorage.setItem('omnipos_auto_open_drawer', g('tset-pr-auto-drawer').checked ? 'true' : 'false');
+        localStorage.setItem('omnipos_bt_autocut', g('tset-pr-auto-cut').checked ? 'true' : 'false');
+        if (typeof setAutoPrintCopies === 'function') setAutoPrintCopies(g('tset-pr-copies').value);
+    } catch (err) {
+        console.error('saveTerminalPrinterPreference failed:', err);
+        tsetPrinterToast('Hindi ma-save ang printing preferences sa device na ito.', 'error');
+        return;
+    }
+    syncRealPrintingControlsFromStorage();
+    if (typeof updatePrinterActiveSummaryUI === 'function') updatePrinterActiveSummaryUI();
+    tsetPrinterToast('Printing preferences saved (this device)');
+}
+async function terminalTestPrint() {
+    if (typeof testPrintResolvedPrinter === 'function') await testPrintResolvedPrinter();
+}
+async function terminalTestCashDrawer() {
+    const target = (typeof resolvePrinterTarget === 'function') ? resolvePrinterTarget() : { type: 'browser' };
+    if (target.type === 'browser') {
+        Swal.fire('Walang Printer', 'Kailangan ng naka-set up na USB/Bluetooth/WiFi/LAN printer na may nakakabit na cash drawer para ma-test ito.', 'info');
+        return;
+    }
+    await openCashDrawerViaResolvedPrinter();
+    tsetPrinterToast('Drawer-kick command sent', 'info');
+}
+function onTerminalUsbModeChange() {
+    const mine = document.getElementById('tset-pr-usb-mode');
+    const real = document.getElementById('usb-printer-mode-select');
+    if (!mine || !real || typeof onUsbPrinterModeChange !== 'function') return;
+    real.value = mine.value;
+    onUsbPrinterModeChange();
+    setTimeout(async () => {
+        if (mine.value === 'server' && typeof renderUsbPrinterServerTargets === 'function') {
+            try { await renderUsbPrinterServerTargets(); } catch (e) { console.warn(e); }
+        }
+        mirrorTerminalPrinterSettings();
+    }, 350);
+}
+function onTerminalUsbBaudChange() {
+    const mine = document.getElementById('tset-pr-usb-baud');
+    const real = document.getElementById('usb-printer-baud-select');
+    if (!mine || !real || typeof saveUsbPrinterBaudRate !== 'function') return;
+    real.value = mine.value;
+    saveUsbPrinterBaudRate();
+    tsetPrinterToast('USB baud rate saved');
+}
+function onTerminalUsbServerTargetChange() {
+    const mine = document.getElementById('tset-pr-usb-server-target');
+    const real = document.getElementById('usb-printer-server-target');
+    if (!mine || !real || typeof saveUsbPrinterServerTarget !== 'function') return;
+    real.value = mine.value;
+    saveUsbPrinterServerTarget();
+    mirrorTerminalPrinterSettings();
+}
+async function refreshTerminalUsbServerTargets() {
+    if (typeof renderUsbPrinterServerTargets !== 'function') return;
+    await renderUsbPrinterServerTargets(true);
+    mirrorTerminalPrinterSettings();
+}
+async function terminalPairUsbPrinter() {
+    if (typeof pairUsbPrinter !== 'function') return;
+    await pairUsbPrinter();
+    mirrorTerminalPrinterSettings();
+}
+async function terminalUsbAction(fnName) {
+    if (typeof window[fnName] === 'function') await window[fnName]();
+}
+async function terminalForgetUsbPrinter() {
+    if (typeof forgetUsbPrinter !== 'function') return;
+    const r = await Swal.fire({ title: 'Remove USB printer?', text: 'Buburahin ang naka-save na USB printer sa device na ito.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Remove', confirmButtonColor: '#ef4444' });
+    if (!r.isConfirmed) return;
+    await forgetUsbPrinter();
+    mirrorTerminalPrinterSettings();
+}
+function onTerminalBtBrandChange() {
+    const mine = document.getElementById('tset-pr-bt-brand');
+    const real = document.getElementById('bt-printer-brand-select');
+    if (!mine) return;
+    if (real && typeof applyBtPrinterBrandPreset === 'function') {
+        real.value = mine.value;
+        applyBtPrinterBrandPreset();
+    } else if (typeof PRINTER_BT_BRAND_STORAGE_KEY !== 'undefined') {
+        localStorage.setItem(PRINTER_BT_BRAND_STORAGE_KEY, mine.value);
+    }
+    const preset = (typeof PRINTER_BT_BRAND_PRESETS !== 'undefined') ? PRINTER_BT_BRAND_PRESETS.find((p) => p.id === mine.value) : null;
+    if (preset && preset.serviceUuid) document.getElementById('tset-pr-bt-service').value = preset.serviceUuid;
+    if (preset && preset.charUuid) document.getElementById('tset-pr-bt-char').value = preset.charUuid;
+    tsetRenderBtBrandNote(mine.value);
+}
+function saveTerminalBtUuids() {
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const service = tsetVal('tset-pr-bt-service');
+    const char = tsetVal('tset-pr-bt-char');
+    if (service && !uuidRe.test(service)) return tsetFail('Invalid Service UUID. Use the full format, e.g. 000018f0-0000-1000-8000-00805f9b34fb', 'tset-pr-bt-service');
+    if (char && !uuidRe.test(char)) return tsetFail('Invalid Characteristic UUID. Use the full format, e.g. 00002af1-0000-1000-8000-00805f9b34fb', 'tset-pr-bt-char');
+    const realService = document.getElementById('bt-printer-service-uuid');
+    const realChar = document.getElementById('bt-printer-char-uuid');
+    if (realService) realService.value = service.toLowerCase();
+    if (realChar) realChar.value = char.toLowerCase();
+    if (typeof saveBluetoothPrinterUuids === 'function') saveBluetoothPrinterUuids();
+    mirrorTerminalPrinterSettings();
+}
+async function terminalPairBtPrinter() {
+    if (typeof pairBluetoothPrinter !== 'function') return;
+    await pairBluetoothPrinter();
+    mirrorTerminalPrinterSettings();
+}
+async function terminalBtAction(fnName) {
+    if (typeof window[fnName] === 'function') await window[fnName]();
+}
+async function terminalForgetBtPrinter() {
+    if (typeof forgetBluetoothPrinter !== 'function') return;
+    const r = await Swal.fire({ title: 'Remove Bluetooth printer?', text: 'Buburahin ang naka-pair na Bluetooth printer sa device na ito.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Remove', confirmButtonColor: '#ef4444' });
+    if (!r.isConfirmed) return;
+    forgetBluetoothPrinter();
+    mirrorTerminalPrinterSettings();
+}
+function onTerminalNetBrandChange() {
+    const brandSel = document.getElementById('tset-pr-net-brand');
+    const portEl = document.getElementById('tset-pr-net-port');
+    if (!brandSel || !portEl || typeof PRINTER_NET_BRAND_PRESETS === 'undefined') return;
+    const preset = PRINTER_NET_BRAND_PRESETS.find((p) => p.id === brandSel.value);
+    if (preset && (!portEl.value || portEl.dataset.userEdited !== 'true')) portEl.value = preset.port;
+}
+function tsetIsValidPrinterHost(host) {
+    const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+    if (ipv4) return ipv4.slice(1).every((o) => Number(o) <= 255);
+    if (/^[\d.]+$/.test(host)) return false; // looks like an IP address but is not a valid IPv4 (e.g. 1.2.3)
+    return /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/i.test(host);
+}
+function saveTerminalNetworkPrinter() {
+    const host = tsetVal('tset-pr-net-host');
+    const port = parseInt(tsetVal('tset-pr-net-port'), 10) || 9100;
+    if (!host) return tsetFail('Enter the printer IP address first.', 'tset-pr-net-host');
+    if (!tsetIsValidPrinterHost(host)) return tsetFail('The printer IP address / hostname looks invalid (example: 192.168.1.100).', 'tset-pr-net-host');
+    if (!(port >= 1 && port <= 65535)) return tsetFail('Port must be a number from 1 to 65535.', 'tset-pr-net-port');
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('net-printer-host', host);
+    set('net-printer-port', port);
+    set('net-printer-conn-type', tsetVal('tset-pr-net-conn') === 'lan' ? 'lan' : 'wifi');
+    set('net-printer-brand-select', tsetVal('tset-pr-net-brand') || 'universal');
+    if (typeof saveNetworkPrinterSettings === 'function') saveNetworkPrinterSettings();
+    mirrorTerminalPrinterSettings();
+}
+async function terminalNetAction(fnName) {
+    if (typeof window[fnName] === 'function') await window[fnName]();
+}
+async function terminalForgetNetworkPrinter() {
+    if (typeof forgetNetworkPrinter !== 'function') return;
+    const r = await Swal.fire({ title: 'Remove network printer?', text: 'Buburahin ang naka-save na IP/Port ng WiFi/LAN printer sa device na ito.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Remove', confirmButtonColor: '#ef4444' });
+    if (!r.isConfirmed) return;
+    forgetNetworkPrinter();
+    const portEl = document.getElementById('tset-pr-net-port');
+    if (portEl) { portEl.value = ''; portEl.dataset.userEdited = 'false'; }
+    mirrorTerminalPrinterSettings();
+}
+// Another browser tab of this same device changed a printer setting -> refresh the printer section if it is on screen.
+window.addEventListener('storage', (evt) => {
+    if (!evt || (evt.key && evt.key.indexOf('omnipos_') !== 0)) return;
+    if (isSettingsPanelVisible('terminal-settings-modal')) mirrorTerminalPrinterSettings();
+    if (typeof syncRealPrintingControlsFromStorage === 'function') syncRealPrintingControlsFromStorage();
+});
+document.addEventListener('input', (evt) => {
+    if (evt && evt.target && evt.target.id === 'tset-pr-net-port' && evt.isTrusted !== false) evt.target.dataset.userEdited = 'true';
+}, true);
+
 async function openTerminalSettingsModal() {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin';
     const { value: authPassword } = await Swal.fire({
@@ -17502,6 +18177,9 @@ async function openTerminalSettingsModal() {
             Swal.fire('Access Denied', data.message || 'Incorrect password, or this account is not authorized to open Terminal Settings.', 'error');
             return;
         }
+        installSettingsDirtyTracking();
+        // Take the sync baseline BEFORE loading, so a change made on another terminal while the forms load is still noticed.
+        await checkSettingsSync({ baselineOnly: true });
         await loadTerminalSettingsModalData();
         document.getElementById('terminal-settings-modal').style.display = 'flex';
     } catch (err) {
@@ -26733,6 +27411,168 @@ async function syncFeaturesFromRelay() {
         Swal.fire('Network Error', 'Could not connect to the server backend.', 'error');
     }
 }
+// ===== CLOUD BACKUP: "Backup contents" (piliin kung ano ang ia-upload) =====
+// Lahat ay naka-check sa unang beses. Ang piniling listahan ay nase-save pagkatapos ng TAGUMPAY na upload at iyon na ang laging
+// ginagamit ng Auto Cloud Backup. Makikita ito anumang oras sa Cloud Backup card (button: "View what is backed up").
+function cbFormatBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n >= 1024 * 1024 * 1024) return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    if (n >= 1024) return Math.round(n / 1024) + ' KB';
+    return n + ' B';
+}
+async function fetchCloudBackupContents() {
+    const res = await authFetch(`${API_URL}/cloud-backup/contents`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success || !Array.isArray(data.groups)) {
+        throw new Error((data && data.message) || 'Could not load the backup contents list.');
+    }
+    return data;
+}
+function buildCloudBackupContentsRowsHtml(groups, excludedSet, interactive) {
+    return groups.map((g) => {
+        const included = !excludedSet.has(g.id);
+        const locked = !g.optional;
+        const countText = (g.optional && typeof g.count === 'number' && g.count > 0)
+            ? ` &middot; ${g.count.toLocaleString()} ${g.id === 'attendanceSelfies' ? 'day(s)' : (g.id === 'productImages' ? 'product(s) with photos' : 'record(s)')}`
+            : '';
+        const statusBadge = interactive ? '' : (included
+            ? '<span style="font-size:0.7rem;font-weight:700;color:#16a34a;">INCLUDED</span>'
+            : '<span style="font-size:0.7rem;font-weight:700;color:#d97706;">LEFT OUT</span>');
+        const checkbox = interactive
+            ? `<input type="checkbox" class="cb-contents-check" data-group="${escapeHtml(g.id)}" ${locked ? 'checked disabled' : (included ? 'checked' : '')} style="margin-top:3px; width:18px; height:18px; flex:none;">`
+            : `<i class="fa-solid ${included ? 'fa-square-check' : 'fa-square'}" style="margin-top:3px; font-size:1.1rem; flex:none; color:${included ? '#16a34a' : '#94a3b8'};"></i>`;
+        return `<label style="display:flex; gap:10px; align-items:flex-start; padding:10px 12px; margin-bottom:8px; border:1px solid rgba(148,163,184,0.45); border-radius:8px; text-align:left; ${interactive && !locked ? 'cursor:pointer;' : ''}">
+            ${checkbox}
+            <span style="flex:1; min-width:0;">
+                <span style="display:flex; justify-content:space-between; gap:8px; align-items:baseline;">
+                    <strong style="font-size:0.92rem;">${escapeHtml(g.label)}${locked ? ' <i class="fa-solid fa-lock" style="font-size:0.7rem; opacity:0.6;"></i>' : ''}</strong>
+                    <span style="font-weight:700; white-space:nowrap; font-size:0.88rem;">${cbFormatBytes(g.approxBytes)}</span>
+                </span>
+                <span style="display:block; font-size:0.76rem; opacity:0.75; line-height:1.35; margin-top:2px;">${escapeHtml(g.description || '')}${countText}</span>
+                ${statusBadge ? `<span style="display:block; margin-top:3px;">${statusBadge}</span>` : ''}
+            </span>
+        </label>`;
+    }).join('');
+}
+function buildCloudBackupContentsSummaryHtml(data, excludedSet) {
+    let selected = 0;
+    let saved = 0;
+    for (const g of data.groups) {
+        if (!g.optional || !excludedSet.has(g.id)) selected += Number(g.approxBytes) || 0;
+        else saved += Number(g.approxBytes) || 0;
+    }
+    const warn = (excludedSet.has('transactions') || excludedSet.has('userlogs'))
+        ? '<div style="margin-top:8px; font-size:0.76rem; color:#b45309; line-height:1.4;"><i class="fa-solid fa-triangle-exclamation"></i> Anything left out will NOT be in your cloud backup, so it cannot be restored from the cloud later. Your local data on this device is never deleted.</div>'
+        : '';
+    return `<div style="display:flex; justify-content:space-between; font-size:0.9rem;"><span>Will upload (approx.)</span><strong>${cbFormatBytes(selected)}</strong></div>
+        <div style="display:flex; justify-content:space-between; font-size:0.9rem; margin-top:2px;"><span>You save</span><strong style="color:#16a34a;">${cbFormatBytes(saved)}</strong></div>
+        <div style="font-size:0.72rem; opacity:0.7; margin-top:4px;">Sizes are estimates before compression; unchanged data is not re-uploaded.</div>${warn}`;
+}
+// Nagbabalik ng array ng group id na HINDI isasama, o null kung kinansela / hindi nakuha ang listahan.
+async function pickCloudBackupContents() {
+    Swal.fire({ title: 'Preparing backup list...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    let data;
+    try {
+        data = await fetchCloudBackupContents();
+    } catch (err) {
+        Swal.fire('Cannot Prepare Backup', err.message || 'Could not load the backup contents list. Please try again.', 'error');
+        return null;
+    }
+    const initialExcluded = new Set(data.saved && data.saved.configured ? data.saved.excludedGroups : []);
+    const result = await Swal.fire({
+        title: 'Choose what to back up',
+        html: `<div style="font-size:0.82rem; opacity:0.85; text-align:left; margin-bottom:10px; line-height:1.45;">${data.saved && data.saved.configured ? 'Your last saved choice is shown.' : 'Everything is checked the first time.'} Uncheck what you don't need to use less upload data. After a successful upload, this list is also used by Auto Cloud Backup.</div>
+            <div id="cb-contents-rows">${buildCloudBackupContentsRowsHtml(data.groups, initialExcluded, true)}</div>
+            <div id="cb-contents-summary" style="text-align:left; margin-top:10px; padding:10px 12px; border-radius:8px; background:rgba(37,99,235,0.08);">${buildCloudBackupContentsSummaryHtml(data, initialExcluded)}</div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Continue',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        didOpen: (popup) => {
+            const collect = () => {
+                const excluded = new Set();
+                popup.querySelectorAll('.cb-contents-check').forEach((el) => { if (!el.disabled && !el.checked) excluded.add(el.getAttribute('data-group')); });
+                return excluded;
+            };
+            popup.querySelectorAll('.cb-contents-check').forEach((el) => {
+                el.addEventListener('change', () => {
+                    const box = popup.querySelector('#cb-contents-summary');
+                    if (box) box.innerHTML = buildCloudBackupContentsSummaryHtml(data, collect());
+                });
+            });
+        },
+        preConfirm: () => {
+            const excluded = [];
+            const popup = Swal.getPopup();
+            if (popup) popup.querySelectorAll('.cb-contents-check').forEach((el) => { if (!el.disabled && !el.checked) excluded.push(el.getAttribute('data-group')); });
+            return excluded;
+        }
+    });
+    if (!result.isConfirmed) return null;
+    return Array.isArray(result.value) ? result.value : [];
+}
+// Read-only na tanaw sa listahang ginagamit ng Auto Cloud Backup (anumang oras).
+async function showCloudBackupContentsList() {
+    Swal.fire({ title: 'Loading...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    let data;
+    try {
+        data = await fetchCloudBackupContents();
+    } catch (err) {
+        Swal.fire('Backup Contents', err.message || 'Could not load the backup contents list.', 'error');
+        return;
+    }
+    const configured = !!(data.saved && data.saved.configured);
+    const excludedSet = new Set(configured ? data.saved.excludedGroups : []);
+    const savedWhen = configured && data.saved.savedAt
+        ? `Saved ${new Date(data.saved.savedAt).toLocaleString()}${data.saved.savedBy ? ' by ' + escapeHtml(data.saved.savedBy) : ''}.`
+        : 'No custom choice saved yet — everything is backed up.';
+    const autoLine = data.autoSyncEnabled === false
+        ? '<span style="color:#d97706;">Auto Cloud Backup is currently OFF.</span>'
+        : 'Auto Cloud Backup uses this list.';
+    const r = await Swal.fire({
+        title: 'Backup contents',
+        html: `<div style="font-size:0.8rem; opacity:0.85; text-align:left; margin-bottom:10px; line-height:1.45;">${autoLine} ${savedWhen}</div>
+            ${buildCloudBackupContentsRowsHtml(data.groups, excludedSet, false)}
+            <div style="text-align:left; margin-top:10px; padding:10px 12px; border-radius:8px; background:rgba(37,99,235,0.08);">${buildCloudBackupContentsSummaryHtml(data, excludedSet)}</div>
+            <div style="font-size:0.75rem; opacity:0.75; text-align:left; margin-top:8px; line-height:1.4;">To change this list, tap "Change &amp; Back Up Now". The new list applies once that backup succeeds.</div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Change & Back Up Now',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b'
+    });
+    if (r.isConfirmed) runCloudBackupSync();
+}
+var __cbContentsSummaryBusy = false;
+var __cbContentsSummaryAt = 0;
+async function refreshCloudBackupContentsSummary(force) {
+    const wrap = document.getElementById('cloud-backup-contents-wrap');
+    const line = document.getElementById('cloud-backup-contents-summary');
+    if (!wrap || !line) return;
+    if (!isFeatureUnlockedCached('cloud_backup')) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    if (__cbContentsSummaryBusy || (!force && Date.now() - __cbContentsSummaryAt < 20000)) return;
+    __cbContentsSummaryBusy = true;
+    try {
+        const data = await fetchCloudBackupContents();
+        __cbContentsSummaryAt = Date.now();
+        const configured = !!(data.saved && data.saved.configured);
+        const excluded = new Set(configured ? data.saved.excludedGroups : []);
+        const leftOut = data.groups.filter((g) => g.optional && excluded.has(g.id));
+        if (!leftOut.length) {
+            line.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#16a34a;"></i> Backing up everything (${cbFormatBytes(data.totalBytes)} approx.).`;
+        } else {
+            const names = leftOut.map((g) => escapeHtml(g.label)).join(', ');
+            line.innerHTML = `<i class="fa-solid fa-filter" style="color:#d97706;"></i> Left out: <strong>${names}</strong> &mdash; saves about <strong>${cbFormatBytes(data.savedBytes)}</strong> per full upload.`;
+        }
+    } catch (_e) {
+        line.textContent = 'Tap the button to see what is included in your cloud backup.';
+    } finally {
+        __cbContentsSummaryBusy = false;
+    }
+}
 window.__cloudBackupSyncInProgress = false;
 window.addEventListener('beforeunload', (e) => {
     if (window.__cloudBackupSyncInProgress) {
@@ -26746,9 +27586,13 @@ async function runCloudBackupSync() {
         Swal.fire('Already Syncing', 'A cloud backup upload is already in progress. Please wait for it to finish before starting another.', 'info');
         return;
     }
+    const excludedGroups = await pickCloudBackupContents();
+    if (excludedGroups === null) return;
     const confirmResult = await Swal.fire({
         title: 'Sync to Cloud?',
-        html: 'This will upload the ENTIRE current database to the developer\'s cloud storage.<br><br>Enter the Admin Password to continue:',
+        html: (excludedGroups.length
+            ? 'This will upload your current database to the developer\'s cloud storage, <strong>leaving out the items you unchecked</strong>.'
+            : 'This will upload the ENTIRE current database to the developer\'s cloud storage.') + '<br><br>Enter the Admin Password to continue:',
         input: 'password',
         inputPlaceholder: 'Admin Passphrase',
         icon: 'warning',
@@ -26782,7 +27626,7 @@ async function runCloudBackupSync() {
         const response = await authFetch(`${API_URL}/cloud-backup/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: loggedInUser, password: adminPassword }),
+            body: JSON.stringify({ username: loggedInUser, password: adminPassword, excludedGroups }),
             timeoutMs: 2400000
         });
         const result = await response.json();
@@ -26822,6 +27666,7 @@ async function runCloudBackupSync() {
             }
             renderCloudBackupStorageBar({ sizeMB: result.sizeMB, quotaMB: result.quotaMB, percentUsed: result.percentUsed, tier: result.tier });
             refreshCloudBackupCostShare();
+            refreshCloudBackupContentsSummary(true);
             if (result.nearQuota) {
                 Swal.fire('Cloud Backup — Almost Full', `You're at ${result.percentUsed}% of your ${(CLOUD_BACKUP_PLANS_UI[result.tier] || {}).name || 'plan'}'s storage allowance. Consider upgrading your plan or freeing up space soon, or the next sync may be rejected.`, 'warning');
             } else {
@@ -28849,6 +29694,7 @@ window.addEventListener('popstate', function(event) {
 });
 function playScanBeep() {
     try {
+        if (typeof uxSettingsCache !== 'undefined' && uxSettingsCache && uxSettingsCache.scannerSound === false) return;
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
@@ -28870,6 +29716,15 @@ function triggerSystemRestore() {
         Swal.fire('File Missing',"Please select the 'full_system_backup.json' file downloaded from the email first.",'warning');
         return;
     }
+    // CRASH-SAFETY: ang file ay binabasa nang buo sa memorya ng browser (text + parsed object + ipapadalang JSON) at buo ring natatanggap ng server.
+    // Ang napakalaking file ay puwedeng makapag-crash ng browser tab o ng server (out of memory), kaya may babala/harang bago basahin.
+    const MANUAL_RESTORE_WARN_BYTES = 50 * 1024 * 1024;
+    const MANUAL_RESTORE_MAX_BYTES = 400 * 1024 * 1024;
+    if (file.size > MANUAL_RESTORE_MAX_BYTES) {
+        Swal.fire('File Too Large', `This backup file is ${(file.size / 1048576).toFixed(0)} MB, which is too large to restore safely from a file on this device (it could crash the app). Use "Restore from Cloud" (Settings > System > Cloud Backup) instead, which restores large backups piece by piece.`, 'error');
+        return;
+    }
+    const proceedWithRestoreAuth = () => {
     Swal.fire({
         title:'System Restore Authorization',
         text:'Enter the Admin Password to confirm the data restore:',
@@ -28932,11 +29787,31 @@ function triggerSystemRestore() {
                     }
                 });
             } catch (err) {
-                Swal.fire('Invalid Format','Invalid JSON file format. Make sure this is the backup file from the email.','error');
+                if (err instanceof RangeError) {
+                    Swal.fire('Not Enough Memory','This backup file is too large for this device to open from a file. Use "Restore from Cloud" instead.','error');
+                } else {
+                    Swal.fire('Invalid Format','Invalid JSON file format. Make sure this is the backup file from the email.','error');
+                }
             }
+        };
+        reader.onerror = function() {
+            Swal.fire('File Read Error','The backup file could not be read. Please re-select the file and try again.','error');
         };
         reader.readAsText(file);
     });
+    };
+    if (file.size > MANUAL_RESTORE_WARN_BYTES) {
+        Swal.fire({
+            title: 'Large Backup File',
+            text: `This file is ${(file.size / 1048576).toFixed(0)} MB. Restoring it from a file may be slow and could run out of memory. "Restore from Cloud" is safer for large backups. Continue anyway?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Continue anyway',
+            cancelButtonText: 'Cancel'
+        }).then((r) => { if (r.isConfirmed) proceedWithRestoreAuth(); });
+    } else {
+        proceedWithRestoreAuth();
+    }
 }
 function validateResetField(inputElement) {
     if (inputElement.value !=='RESET') {
@@ -29280,6 +30155,7 @@ async function showMainSystemInterface(options = {}) {
         try { await fetchUxSettings(); } catch (e) { console.error('fetchUxSettings failed (non-blocking):', e); }
         try { await fetchAdvancedSettings(); setupIdleAutoLock(); refreshAutoLogoutFromSettings(); } catch (e) { console.error('fetchAdvancedSettings failed (non-blocking):', e); }
         applyPaymentMethodVisibility();
+        try { startSettingsSyncWatcher(); } catch (e) { console.error('startSettingsSyncWatcher failed (non-blocking):', e); }
     } catch (err) {
         console.error('Unexpected error while loading the main system interface after login (still proceeding to show the view):', err);
     } finally {

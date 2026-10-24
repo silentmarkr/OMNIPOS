@@ -2262,16 +2262,77 @@ function isRowStoreBackedModule(moduleName) {
     return false;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// BACKUP CONTENTS (pinipili ng client kung ano ang ia-upload sa Cloud Backup)
+// ---------------------------------------------------------------------------------------------------------------------
+// Ang "optional" na grupo lang ang pwedeng i-uncheck. Lahat ng iba (produkto, customer, settings, user accounts, license, BIR...)
+// ay laging kasama ("core") para hindi masira ang restore. Kapag may na-uncheck na grupo, HINDI lang ito ina-upload —
+// at dahil ang restore ay modules lang na nasa backup ang ina-apply, HINDI nabubura ang lokal na data nito sa restore.
+const CLOUD_BACKUP_SELFIE_MODULE_PREFIX = 'attendanceSelfies_';
+const CLOUD_BACKUP_OPTIONAL_GROUPS = [
+    { id: 'productImages', label: 'Product photos', description: 'HD photos of your products. The product list itself (names, prices, stock) is always backed up.' },
+    { id: 'attendanceSelfies', label: 'Attendance selfies', description: 'Selfie photos taken when staff time in/out.' },
+    { id: 'transactions', label: 'Sales transactions history', description: 'All past sales/receipts. Not restorable from the cloud if left out.' },
+    { id: 'userlogs', label: 'Activity logs', description: 'The history of who did what in the system.' }
+];
+const CLOUD_BACKUP_CORE_GROUP = { id: 'core', label: 'Core business data', description: 'Product list, customers, debts, settings, user accounts (no passwords), licenses, BIR records and everything else. Always included.' };
+const CLOUD_BACKUP_OPTIONAL_GROUP_IDS = new Set(CLOUD_BACKUP_OPTIONAL_GROUPS.map((g) => g.id));
+// Tumatanggap ng array/Set/iterable ng group id; itinatapon ang hindi kilala. Laging nagbabalik ng Set ng VALID optional group id.
+function normalizeCloudBackupExcludedGroups(input) {
+    const out = new Set();
+    if (input === null || input === undefined) return out;
+    let list = [];
+    if (typeof input === 'string') list = [input];
+    else if (typeof input[Symbol.iterator] === 'function') list = Array.from(input);
+    for (const id of list) {
+        if (typeof id === 'string' && CLOUD_BACKUP_OPTIONAL_GROUP_IDS.has(id)) out.add(id);
+    }
+    return out;
+}
+function cloudBackupGroupOfModule(moduleName) {
+    if (moduleName === 'transactions') return 'transactions';
+    if (moduleName === 'userlogs') return 'userlogs';
+    if (typeof moduleName === 'string' && moduleName.startsWith(CLOUD_BACKUP_SELFIE_MODULE_PREFIX)) return 'attendanceSelfies';
+    return 'core';
+}
+// Magaan: haba lang (bytes) ng product photos — CAST AS BLOB para hindi bilangin ang bawat character ng base64. May 30-segundong cache
+// para hindi paulit-ulit na i-scan ang product_images kapag sunod-sunod ang tawag (plano + listahan ng contents).
+let productImagesStatsCache = null;
+function getProductImagesApproxStats() {
+    const nowMs = Date.now();
+    if (productImagesStatsCache && nowMs - productImagesStatsCache.at < 30000) return productImagesStatsCache.value;
+    let value = { count: 0, bytes: 0 };
+    try {
+        const row = db.prepare("SELECT COUNT(*) AS cnt, COALESCE(SUM(LENGTH(CAST(image AS BLOB)) + LENGTH(CAST(images AS BLOB))), 0) AS bytes FROM product_images WHERE image <> '' OR images <> '[]'").get();
+        value = { count: Number(row && row.cnt) || 0, bytes: Number(row && row.bytes) || 0 };
+    } catch (_e) { /* walang table/error: ituring na walang photo */ }
+    productImagesStatsCache = { at: nowMs, value };
+    return value;
+}
+
 // Magaan na plano (walang binabasang laman): aling mga module, ilang record, at tinatayang laki.
-function getCloudBackupSegmentPlan() {
+// options.excludedGroups = mga optional group id na HINDI isasama (default: wala = lahat isasama).
+function getCloudBackupSegmentPlan(options) {
+    const excluded = normalizeCloudBackupExcludedGroups(options && options.excludedGroups);
     const moduleNames = getBackupModuleNames(ALWAYS_EXCLUDED_FROM_CLOUD_SYNC);
     const modules = [];
     let totalApproxBytes = 0;
     for (const name of moduleNames) {
+        const groupId = cloudBackupGroupOfModule(name);
+        if (groupId !== 'core' && excluded.has(groupId)) continue;
         let approxBytes = 0;
         let records = 0;
         let kind = 'blob';
-        if (isRowStoreBackedModule(name)) {
+        let includeImages = false;
+        if (name === 'products') {
+            kind = 'products';
+            includeImages = !excluded.has('productImages');
+            try {
+                const st = cloudBlobSizeStmt.get(name);
+                approxBytes = st ? (Number(st.bytes) || 0) : 0;
+            } catch (_e) { approxBytes = 0; }
+            if (includeImages) approxBytes += getProductImagesApproxStats().bytes;
+        } else if (isRowStoreBackedModule(name)) {
             kind = 'rows';
             const st = cloudRowStatsStmt.get(name) || { cnt: 0, bytes: 0 };
             records = Number(st.cnt) || 0;
@@ -2282,15 +2343,98 @@ function getCloudBackupSegmentPlan() {
                 approxBytes = st ? (Number(st.bytes) || 0) : 0;
             } catch (_e) { approxBytes = 0; }
         }
-        modules.push({ name, kind, approxBytes, records });
+        const entry = { name, kind, approxBytes, records };
+        if (kind === 'products') entry.includeImages = includeImages;
+        modules.push(entry);
         totalApproxBytes += approxBytes;
     }
-    return { modules, totalApproxBytes, generatedAt: new Date().toISOString() };
+    return { modules, totalApproxBytes, excludedGroups: Array.from(excluded), generatedAt: new Date().toISOString() };
+}
+
+// Listahan para sa UI: bawat grupo, tinatayang laki, at kung ilang MB ang matitipid sa napiling exclusions.
+function getCloudBackupContentsBreakdown(excludedInput) {
+    const excluded = normalizeCloudBackupExcludedGroups(excludedInput);
+    const full = getCloudBackupSegmentPlan({ excludedGroups: [] });
+    const imageStats = getProductImagesApproxStats();
+    const sizes = { productImages: imageStats.bytes, attendanceSelfies: 0, transactions: 0, userlogs: 0 };
+    const counts = { productImages: imageStats.count, attendanceSelfies: 0, transactions: 0, userlogs: 0 };
+    for (const m of full.modules) {
+        const g = cloudBackupGroupOfModule(m.name);
+        if (g === 'core') continue;
+        sizes[g] += m.approxBytes;
+        if (g === 'attendanceSelfies') counts[g] += 1;
+        else counts[g] += m.records;
+    }
+    const optionalTotal = sizes.productImages + sizes.attendanceSelfies + sizes.transactions + sizes.userlogs;
+    const coreBytes = Math.max(0, full.totalApproxBytes - optionalTotal);
+    const groups = [{ ...CLOUD_BACKUP_CORE_GROUP, optional: false, approxBytes: coreBytes, count: null, included: true }];
+    let selectedBytes = coreBytes;
+    let savedBytes = 0;
+    for (const g of CLOUD_BACKUP_OPTIONAL_GROUPS) {
+        const included = !excluded.has(g.id);
+        groups.push({ ...g, optional: true, approxBytes: sizes[g.id], count: counts[g.id], included });
+        if (included) selectedBytes += sizes[g.id]; else savedBytes += sizes[g.id];
+    }
+    return { groups, totalBytes: full.totalApproxBytes, selectedBytes, savedBytes, excludedGroups: Array.from(excluded), generatedAt: new Date().toISOString() };
 }
 
 // Yields { part, records, type: 'array'|'object', json } — isang segment kada yield.
 // Laging may kahit isang segment ang module (kahit walang laman) para alam ng restore na umiiral ito.
-function* iterateCloudBackupSegments(moduleName, kind, targetBytes = CLOUD_SEGMENT_TARGET_BYTES) {
+// STREAMING PRODUCTS: ang catalog (walang photo) ay binabasa nang magaan; ang HD photo ay kinukuha nang paunti-unti (20 product bawat
+// kuha) at agad isinasama sa segment — hindi na lahat ng larawan ay nasa RAM. Parehong format ng dati (array ng product na may
+// image/images), kaya tugma pa rin sa lumang restore. Kapag includeImages=false, walang image/images key (kaya hindi nabubura ang
+// lokal na larawan sa restore — tingnan ang replaceProductsStreaming).
+function* iterateProductSegmentsForBackup(includeImages, targetBytes) {
+    if (isWriteBlockedByFailedRead('products')) {
+        throw new Error('The products list could not be read safely right now, so it was not uploaded (to avoid backing up an empty catalog). Please try again.');
+    }
+    if (!moduleExistsInStore('products')) { yield { part: 0, records: 0, type: 'array', json: '[]' }; return; }
+    const catalog = readProductsNoImages([]);
+    if (isWriteBlockedByFailedRead('products')) {
+        throw new Error('The products list could not be read safely right now, so it was not uploaded (to avoid backing up an empty catalog). Please try again.');
+    }
+    let part = 0;
+    let pieces = [];
+    let bytes = 2;
+    const READ_CHUNK = 20;
+    for (let i = 0; i < catalog.length; i += READ_CHUNK) {
+        const chunk = catalog.slice(i, i + READ_CHUNK);
+        let imageMap = null;
+        if (includeImages) {
+            const codes = [];
+            for (const p of chunk) { if (p && typeof p === 'object' && p.code != null) codes.push(p.code); }
+            imageMap = codes.length ? getProductImagesByCodes(codes) : {};
+        }
+        for (const product of chunk) {
+            let item = product;
+            if (imageMap && product && typeof product === 'object' && product.code != null) {
+                const entry = imageMap[String(product.code)];
+                if (entry) item = { ...product, image: entry.image, images: entry.images };
+            }
+            const text = JSON.stringify(item);
+            if (text === undefined) continue;
+            if (text.length > CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES) {
+                const code = product && product.code != null ? ` (code ${product.code})` : '';
+                throw new Error(`A product${code} is larger than ${Math.round(CLOUD_SEGMENT_MAX_SINGLE_ITEM_BYTES / 1048576)} MB; it cannot be uploaded.`);
+            }
+            if (pieces.length && bytes + text.length + 1 > targetBytes) {
+                yield { part, records: pieces.length, type: 'array', json: '[' + pieces.join(',') + ']' };
+                part += 1;
+                pieces = [];
+                bytes = 2;
+            }
+            pieces.push(text);
+            bytes += text.length + 1;
+        }
+    }
+    yield { part, records: pieces.length, type: 'array', json: '[' + pieces.join(',') + ']' };
+}
+
+function* iterateCloudBackupSegments(moduleName, kind, targetBytes = CLOUD_SEGMENT_TARGET_BYTES, options = {}) {
+    if (kind === 'products') {
+        yield* iterateProductSegmentsForBackup(!(options && options.includeImages === false), targetBytes);
+        return;
+    }
     if (kind === 'rows') {
         // PASS 1 (magaan): hanapin ang mga hangganan ng bawat chunk, mula sa PINAKALUMANG row pataas, gamit lang ang LENGTH(data).
         // Hangganan = FIXED na bilang ng row (hindi laki), kaya ang pag-edit ng lumang row (kahit nagbago ang laki) ay isang segment lang ang naaapektuhan.
@@ -2417,7 +2561,77 @@ function replaceRowModuleStreaming(moduleName, totalCount, nextBatch) {
     }
 }
 
-module.exports = { getCloudBackupSegmentPlan, iterateCloudBackupSegments, replaceRowModuleStreaming, ROW_NORMALIZED_MODULES, CLOUD_SEGMENT_TARGET_BYTES, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
+// STREAMING RESTORE ng products: pinapalitan ang buong catalog sa IISANG transaction (lahat o wala), habang isang segment lang ng
+// product (may HD photo) ang nasa RAM. Kapareho ng semantics ng writeData('products', ...):
+//   - product na MAY image/images key  -> ina-update ang photo niya sa product_images;
+//   - product na WALANG image/images key (hal. backup na hindi isinama ang photos) -> HINDI ginagalaw ang lokal na photo niya;
+//   - code na wala na sa bagong catalog -> binubura ang photo row niya.
+// `nextBatch()` ay nagbabalik ng array ng product o null kapag tapos na.
+function replaceProductsStreaming(nextBatch) {
+    if (typeof nextBatch !== 'function') throw new Error('replaceProductsStreaming needs a batch reader function.');
+    if (isWriteBlockedByFailedRead('products')) throw new Error(rowWriteBlockedMessage('products'));
+    const now = new Date().toISOString();
+    const existingVersions = new Map(productImageSelectVersionsStmt.all().map((row) => [String(row.code), row.image_ver || '']));
+    const incomingCodes = new Set();
+    const catalog = [];
+    let written = 0;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        for (;;) {
+            const batch = nextBatch();
+            if (!batch) break;
+            if (!Array.isArray(batch)) throw new Error('Invalid products segment.');
+            for (const product of batch) {
+                if (product && typeof product === 'object' && product.code != null) {
+                    const code = String(product.code);
+                    incomingCodes.add(code);
+                    if (isProductImagePayloadPresent(product)) {
+                        const hasMainKey = Object.prototype.hasOwnProperty.call(product, 'image');
+                        const hasGalleryKey = Object.prototype.hasOwnProperty.call(product, 'images');
+                        let image = typeof product.image === 'string' ? product.image : '';
+                        let images = Array.isArray(product.images) ? product.images : [];
+                        if (hasMainKey !== hasGalleryKey) {
+                            const current = productImageSelectOneStmt.get(code);
+                            if (current) {
+                                if (!hasMainKey) image = current.image || '';
+                                if (!hasGalleryKey) {
+                                    try {
+                                        const parsedGallery = JSON.parse(current.images || '[]');
+                                        images = Array.isArray(parsedGallery) ? parsedGallery : [];
+                                    } catch (_) { images = []; }
+                                }
+                            }
+                        }
+                        const ver = productImageVersion(image, images);
+                        if (existingVersions.get(code) !== ver) {
+                            productImageUpsertStmt.run(code, image, JSON.stringify(images), ver, now);
+                            existingVersions.set(code, ver);
+                        }
+                    }
+                }
+                catalog.push(stripProductImagesForStorage([product])[0]);
+                written += 1;
+            }
+        }
+        // Linisin ang photo ng mga product na wala na sa bagong catalog (walang SQL placeholder list: ligtas sa napakaraming product).
+        for (const row of db.prepare('SELECT code FROM product_images').all()) {
+            if (!incomingCodes.has(String(row.code))) productImageDeleteStmt.run(String(row.code));
+        }
+        const json = JSON.stringify(catalog);
+        upsertStmt.run('products', json, now);
+        db.exec('COMMIT');
+        blobStringCache.set('products', json);
+        invalidateProductsViewCache();
+        noteSuccessfulWrite('products');
+        return { written };
+    } catch (err) {
+        try { db.exec('ROLLBACK'); } catch (_rollbackErr) { /* wala */ }
+        noteDbRuntimeError(err);
+        throw err;
+    }
+}
+
+module.exports = { replaceProductsStreaming, getCloudBackupContentsBreakdown, normalizeCloudBackupExcludedGroups, CLOUD_BACKUP_OPTIONAL_GROUPS, getCloudBackupSegmentPlan, iterateCloudBackupSegments, replaceRowModuleStreaming, ROW_NORMALIZED_MODULES, CLOUD_SEGMENT_TARGET_BYTES, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, db, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, DB_DIR, DB_PATH, BACKUP_DIR, runLocalDatabaseBackup, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC, getBackupStatus, registerModuleDefaults };
 
 function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
     try {

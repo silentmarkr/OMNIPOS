@@ -17,7 +17,7 @@ const multer = require('multer');
 const bwipjs = require('bwip-js');
 const QRCode = require('qrcode');
 const { execSync, spawn } = require('child_process');
-const { db: sqliteDb, replaceProductsStreaming, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR, getCloudBackupSegmentPlan, iterateCloudBackupSegments, replaceRowModuleStreaming, ROW_NORMALIZED_MODULES: DB_ROW_NORMALIZED_MODULES, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC: CLOUD_ALWAYS_EXCLUDED_MODULES } = require('./db');
+const { db: sqliteDb, replaceProductsStreaming, readRowsSearchPage, readLastSoldAggregates, readRowsInIsoWindow, readRowsInNumberWindow, getRowById, averageRowNumberField, readRowsPage, readRowsByJsonFieldNoCase, findRowByJsonField, readRecentRowsByJsonField, rowStoreHas, addNewestRow, getProductsView, getProductsRawJson, getProductImagesByCodes, readData, readDataLite, readProductsNoImages, getProductCodesWithMainImage, writeData, runDatabaseTransaction, vacuumDatabase, runLocalDatabaseBackup, checkModuleBlobSizes, mirrorBackupToDownloads, getCloudBackupPayload, getFullDatabaseSnapshot, getAiKnowledgeSnapshot, getBackupStatus, registerModuleDefaults, DB_DIR, getCloudBackupSegmentPlan, getCloudBackupContentsBreakdown, normalizeCloudBackupExcludedGroups, iterateCloudBackupSegments, replaceRowModuleStreaming, ROW_NORMALIZED_MODULES: DB_ROW_NORMALIZED_MODULES, ALWAYS_EXCLUDED_FROM_CLOUD_SYNC: CLOUD_ALWAYS_EXCLUDED_MODULES } = require('./db');
 const birCompliance = require('./bir-compliance');
 const uomPricing = require('./uom-pricing');
 const registerMarketplace = require('./marketplace-sync');
@@ -2270,8 +2270,30 @@ function enforceVatLockOnIncoming(incoming) {
     incoming.pricesIncludeTax = stored.pricesIncludeTax;
     return incoming;
 }
+// getStoreSettingsPublic() / getUxSettingsPublic() silently replace an invalid number with the default, so range checks done
+// only on their output could never fail. These helpers validate what the client actually SENT (an omitted/blank field is fine).
+function rawSettingNumber(body, field) {
+    const v = body ? body[field] : undefined;
+    if (v === undefined || v === null || v === '') return undefined;
+    return Number(v);
+}
+function validateRawStoreSettingsNumbers(body) {
+    const taxRate = rawSettingNumber(body, 'taxRate');
+    if (taxRate !== undefined && !(Number.isFinite(taxRate) && taxRate >= 0 && taxRate <= 100)) return 'Ang tax rate ay dapat nasa pagitan ng 0 at 100.';
+    const seniorRate = rawSettingNumber(body, 'seniorPwdDiscountRate');
+    if (seniorRate !== undefined && !(Number.isFinite(seniorRate) && seniorRate >= 0 && seniorRate <= 100)) return 'Ang Senior/PWD discount rate ay dapat nasa pagitan ng 0 at 100.';
+    const earnRate = rawSettingNumber(body, 'loyaltyEarnRate');
+    if (earnRate !== undefined && !(Number.isFinite(earnRate) && earnRate > 0)) return 'Ang Loyalty earn rate (₱ kada point) ay dapat higit sa 0.';
+    const pointValue = rawSettingNumber(body, 'loyaltyPointValue');
+    if (pointValue !== undefined && !(Number.isFinite(pointValue) && pointValue >= 0)) return 'Ang Loyalty point value ay hindi puwedeng negative.';
+    return null;
+}
 app.post('/api/store-settings', requirePermission('store_settings_view'), (req, res) => {
     const { username } = req.body;
+    const rawStoreNumberError = validateRawStoreSettingsNumbers(req.body);
+    if (rawStoreNumberError) {
+        return res.status(400).json({ success: false, message: rawStoreNumberError });
+    }
     for (const [field, label] of [['gcashQrImage', 'GCash QR'], ['mayaQrImage', 'Maya QR']]) {
         const raw = (req.body || {})[field];
         if (raw !== undefined && raw !== null && raw !== '' && sanitizeQrImageDataUrl(raw) === null) {
@@ -2350,7 +2372,7 @@ function getUxSettingsPublic(rawSettings) {
     const w = s.dashboardWidgets || DEFAULT_UX_SETTINGS.dashboardWidgets;
     return {
         darkModeDefault: !!s.darkModeDefault,
-        lowStockAlertThreshold: Number.isFinite(s.lowStockAlertThreshold) ? s.lowStockAlertThreshold : DEFAULT_UX_SETTINGS.lowStockAlertThreshold,
+        lowStockAlertThreshold: Number.isFinite(s.lowStockAlertThreshold) ? Math.floor(s.lowStockAlertThreshold) : DEFAULT_UX_SETTINGS.lowStockAlertThreshold,
         scannerSound: s.scannerSound !== false,
         dashboardWidgets: {
             salesToday: w.salesToday !== false,
@@ -2367,6 +2389,10 @@ app.get('/api/ux-settings', (req, res) => {
 });
 app.post('/api/ux-settings', requirePermission('ux_settings_view'), (req, res) => {
     const { username } = req.body;
+    const rawLowStock = rawSettingNumber(req.body, 'lowStockAlertThreshold');
+    if (rawLowStock !== undefined && !(Number.isFinite(rawLowStock) && rawLowStock >= 0)) {
+        return res.status(400).json({ success: false, message: 'The low-stock threshold cannot be negative.' });
+    }
     const incoming = getUxSettingsPublic(req.body || {});
     if (incoming.lowStockAlertThreshold < 0) {
         return res.status(400).json({ success: false, message: 'The low-stock threshold cannot be negative.' });
@@ -2485,6 +2511,42 @@ app.post('/api/advanced-settings', requirePermission('advanced_settings_view'), 
     writeData(FILE_ADVANCED_SETTINGS, incoming);
     logAction(username || req.authUser.username, 'Updated Advanced Settings (auto logout/idle auto-lock/customer display/sale webhook/2FA/fraud detection)');
     res.json({ success: true, message: 'Advanced Settings have been updated.', settings: incoming });
+});
+// Lightweight revision stamps so every POS terminal / Settings page can notice that another terminal (or an approved
+// request) changed a setting and refresh its cached copy. Only hashes + timestamps are returned, never the values.
+function settingsRevisionHash(obj) {
+    try { return require('crypto').createHash('sha1').update(JSON.stringify(obj === undefined ? null : obj)).digest('hex').slice(0, 16); }
+    catch (_e) { return ''; }
+}
+app.get('/api/settings-sync', (req, res) => {
+    try {
+        const store = getStoreSettingsPublic(readData(FILE_STORE_SETTINGS, DEFAULT_STORE_SETTINGS));
+        const ux = getUxSettingsPublic(readData(FILE_UX_SETTINGS, DEFAULT_UX_SETTINGS));
+        const advanced = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
+        const receiptRaw = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS) || {};
+        const receipt = {
+            storeName: receiptRaw.storeName, storeAddress: receiptRaw.storeAddress, storeContact: receiptRaw.storeContact,
+            headerText: receiptRaw.headerText, footerText: receiptRaw.footerText, headerType: receiptRaw.headerType,
+            paperSize: receiptRaw.paperSize, customizeCount: receiptRaw.customizeCount,
+            barcodeSettings: receiptRaw.barcodeSettings, loyaltyQrSettings: receiptRaw.loyaltyQrSettings,
+            modernTemplateSettings: receiptRaw.modernTemplateSettings, transactionIdSettings: receiptRaw.transactionIdSettings,
+            advancedSettings: receiptRaw.advancedSettings
+        };
+        res.set('Cache-Control', 'no-store');
+        res.json({
+            success: true,
+            serverTime: new Date().toISOString(),
+            sections: {
+                store: { rev: settingsRevisionHash(store), updatedAt: store.updatedAt || null },
+                ux: { rev: settingsRevisionHash(ux), updatedAt: ux.updatedAt || null },
+                advanced: { rev: settingsRevisionHash(advanced), updatedAt: advanced.updatedAt || null },
+                receipt: { rev: settingsRevisionHash(receipt), updatedAt: null }
+            }
+        });
+    } catch (err) {
+        console.error('settings-sync error:', err);
+        res.status(500).json({ success: false, message: 'Hindi makuha ang settings sync status.' });
+    }
 });
 const FILE_FRAUD_ALERTS = 'fraudAlerts';
 const FRAUD_ALERTS_MAX_STORED = 500;
@@ -7094,8 +7156,30 @@ const cloudBackupStatus = {
     lastPercentUsed: null,
     uploadStartedAt: null,
     uploadedBytes: null,
-    uploadTotalBytes: null
+    uploadTotalBytes: null,
+    lastExcludedGroups: null
 };
+// BACKUP CONTENTS: ang piniling listahan ng client (mga optional group na HINDI ia-upload). Naka-save sa sariling module, hiwalay sa
+// cloudTokenPrefs. Ito ang laging ginagamit ng Auto Cloud Backup; nire-replace ito ng bawat TAGUMPAY na manual Cloud Backup.
+const FILE_CLOUD_BACKUP_SELECTION = 'cloudBackupSelection';
+function getCloudBackupSelection() {
+    const raw = readData(FILE_CLOUD_BACKUP_SELECTION, { configured: false, excludedGroups: [], savedAt: null, savedBy: null });
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { configured: false, excludedGroups: [], savedAt: null, savedBy: null };
+    return {
+        configured: raw.configured === true,
+        excludedGroups: Array.from(normalizeCloudBackupExcludedGroups(raw.excludedGroups)),
+        savedAt: typeof raw.savedAt === 'number' ? raw.savedAt : null,
+        savedBy: typeof raw.savedBy === 'string' ? raw.savedBy : null
+    };
+}
+function saveCloudBackupSelection(excludedGroups, actorUsername) {
+    return writeData(FILE_CLOUD_BACKUP_SELECTION, {
+        configured: true,
+        excludedGroups: Array.from(normalizeCloudBackupExcludedGroups(excludedGroups)),
+        savedAt: Date.now(),
+        savedBy: actorUsername ? String(actorUsername).slice(0, 80) : null
+    });
+}
 function getCloudBackupSubscriptionInfo() {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
@@ -7187,6 +7271,22 @@ app.get('/api/cloud-backup/status', async (req, res) => {
             : null),
         subscription
     });
+});
+// BACKUP CONTENTS: ang listahan ng ia-upload (may laki bawat isa) + ang naka-save na pinili ng client (ginagamit ng Auto Cloud Backup).
+app.get('/api/cloud-backup/contents', requireFeature('cloud_backup'), (req, res) => {
+    try {
+        const saved = getCloudBackupSelection();
+        const breakdown = getCloudBackupContentsBreakdown(saved.excludedGroups);
+        res.json({
+            success: true,
+            ...breakdown,
+            saved,
+            autoSyncEnabled: getCloudTokenPrefs().autoSyncEnabled
+        });
+    } catch (err) {
+        console.error('⚠️ CLOUD_BACKUP: hindi nabuo ang listahan ng backup contents:', err.message);
+        res.status(500).json({ success: false, message: 'Could not read the backup contents list right now. Please try again.' });
+    }
 });
 app.get('/api/cloud-backup/cost-share', async (req, res) => {
     if (!RELAY_API_KEY) {
@@ -7294,10 +7394,11 @@ function saveCloudBackupResume(installationId, uploadId) {
 }
 function clearCloudBackupResume() { try { fs.unlinkSync(CLOUD_BACKUP_RESUME_FILE); } catch (_e) { /* wala */ } }
 // Nagbabalik ng `null` kung walang v2 support ang RELAY (404 sa /v2/start); kung hindi, laging resulta {success,...}.
-async function performCloudBackupUploadSegmented(trigger, actorUsername) {
+async function performCloudBackupUploadSegmented(trigger, actorUsername, options) {
+    const excludedGroups = Array.from(normalizeCloudBackupExcludedGroups(options && options.excludedGroups));
     let plan;
     try {
-        plan = getCloudBackupSegmentPlan();
+        plan = getCloudBackupSegmentPlan({ excludedGroups });
     } catch (planErr) {
         cloudBackupStatus.state = 'error';
         cloudBackupStatus.lastError = `Could not prepare the cloud backup: ${planErr.message}`;
@@ -7388,7 +7489,7 @@ async function performCloudBackupUploadSegmented(trigger, actorUsername) {
             let producedAny = false;
             let moduleRecords = 0;
             try {
-                for (const seg of iterateCloudBackupSegments(mod.name, mod.kind)) {
+                for (const seg of iterateCloudBackupSegments(mod.name, mod.kind, undefined, { includeImages: mod.includeImages !== false })) {
                     producedAny = true;
                     const rawBuf = Buffer.from(seg.json, 'utf8');
                     const segSha = crypto.createHash('sha256').update(rawBuf).digest('hex');
@@ -7518,17 +7619,23 @@ async function performCloudBackupUploadSegmented(trigger, actorUsername) {
         cloudBackupStatus.lastTotalRecords = totalRecords;
         cloudBackupStatus.lastReusedSegments = reusedCount;
         cloudBackupStatus.lastReusedBytes = reusedRaw;
+        cloudBackupStatus.lastExcludedGroups = excludedGroups;
+        // Tagumpay ang upload: ang napiling listahan na ang gagamitin ng Auto Cloud Backup (at makikita sa Cloud Backup card).
+        if (options && options.persistSelection) {
+            try { saveCloudBackupSelection(excludedGroups, actorUsername); }
+            catch (selErr) { console.warn('⚠️ CLOUD_BACKUP: hindi na-save ang backup contents selection:', selErr.message); }
+        }
         if (typeof relayData.sizeBytes === 'number') {
             cloudBackupStatus.lastSizeBytes = relayData.sizeBytes;
             cloudBackupStatus.lastSizeMB = relayData.sizeMB;
             cloudBackupStatus.lastQuotaMB = relayData.quotaMB;
             cloudBackupStatus.lastPercentUsed = relayData.percentUsed;
         }
-        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}, segmented): synced ${moduleNames.length} modules (${totalRecords} records, ${segmentsSent} segments, ${reusedCount} unchanged/reused, ${formatMBForLog(reusedRaw)} not re-uploaded, ${formatMBForLog(uploadedRaw)} uploaded [${Object.entries(uploadedByModule).map(([m, n]) => `${m}:${n}`).join(', ') || 'none'}], ${relayData.sizeMB ?? '?'} MB) to cloud.`);
+        logAction(actorUsername || (trigger === 'automatic' ? 'System (auto-backup)' : 'Unknown'), `Cloud Backup (${trigger}, segmented${excludedGroups.length ? `, left out: ${excludedGroups.join('/')}` : ''}): synced ${moduleNames.length} modules (${totalRecords} records, ${segmentsSent} segments, ${reusedCount} unchanged/reused, ${formatMBForLog(reusedRaw)} not re-uploaded, ${formatMBForLog(uploadedRaw)} uploaded [${Object.entries(uploadedByModule).map(([m, n]) => `${m}:${n}`).join(', ') || 'none'}], ${relayData.sizeMB ?? '?'} MB) to cloud.`);
         return {
             success: true, status: 200,
             message: 'Successfully synced the database to the cloud (Postgres).',
-            totalRecords, moduleNames, excludedModules: Array.from(CLOUD_ALWAYS_EXCLUDED_MODULES),
+            totalRecords, moduleNames, excludedModules: Array.from(CLOUD_ALWAYS_EXCLUDED_MODULES), excludedGroups,
             sizeBytes: relayData.sizeBytes, sizeMB: relayData.sizeMB, tier: relayData.tier, quotaMB: relayData.quotaMB,
             percentUsed: relayData.percentUsed, nearQuota: !!relayData.nearQuota
         };
@@ -7550,7 +7657,14 @@ function cbSegQuotaFailure(data) {
         tier: data.tier, quotaMB: data.quotaMB, sizeMB: data.sizeMB, overageMB: data.overageMB
     };
 }
-async function performCloudBackupUpload(trigger, actorUsername) {
+async function performCloudBackupUpload(trigger, actorUsername, options) {
+    // options.excludedGroups (array) = piniling listahan ng client para sa upload na ito (manual). Kapag wala, ginagamit ang naka-save na
+    // listahan (auto backup). options.persistSelection = i-save ang listahan kapag TAGUMPAY ang upload.
+    const hasExplicitSelection = !!(options && Array.isArray(options.excludedGroups));
+    const effectiveExcluded = hasExplicitSelection
+        ? Array.from(normalizeCloudBackupExcludedGroups(options.excludedGroups))
+        : getCloudBackupSelection().excludedGroups;
+    const segOptions = { excludedGroups: effectiveExcluded, persistSelection: hasExplicitSelection };
     if (getConnectivityMode() === 'offline') {
         return { success: false, status: 400, message: 'You are currently in OFFLINE mode. Tap the Online toggle first to be able to back up to the cloud.' };
     }
@@ -7580,7 +7694,7 @@ async function performCloudBackupUpload(trigger, actorUsername) {
     // kaya halos pare-pareho lang ang memory kahit GB ang laki ng database. Ang `null` ay nangangahulugang lumang RELAY na walang v2
     // route — babalik tayo sa lumang (all-in-RAM) na paraan sa ibaba, kasama ang SCALE GUARD nito.
     try {
-        const segmentedResult = await performCloudBackupUploadSegmented(trigger, actorUsername);
+        const segmentedResult = await performCloudBackupUploadSegmented(trigger, actorUsername, segOptions);
         if (segmentedResult !== null) { cloudBackupUploadInFlight = false; return segmentedResult; }
     } catch (segmentedFatal) {
         cloudBackupUploadInFlight = false;
@@ -7588,6 +7702,13 @@ async function performCloudBackupUpload(trigger, actorUsername) {
         cloudBackupStatus.lastError = `Cloud backup failed unexpectedly: ${segmentedFatal.message}`;
         console.error('⚠️ CLOUD_BACKUP (segmented): unexpected failure:', segmentedFatal);
         return { success: false, status: 500, message: cloudBackupStatus.lastError };
+    }
+    // Lumang RELAY (walang v2): hindi nito kayang mag-upload nang pili — huwag itong ituloy nang palihim na ina-upload ang LAHAT.
+    if (effectiveExcluded.length) {
+        cloudBackupUploadInFlight = false;
+        cloudBackupStatus.state = 'error';
+        cloudBackupStatus.lastError = 'The cloud server does not support choosing what to back up yet. Re-check every item in "Backup contents" and try again.';
+        return { success: false, status: 400, message: cloudBackupStatus.lastError };
     }
     // SCALE GUARD: ang cloud backup ay nagkakarga ng LAHAT ng module sa RAM, ginagawang isang JSON string, at ginzi-gzip. Sa malaking
     // database (default > 200 MB, CLOUD_BACKUP_MAX_DB_MB) ay mauubusan ng memory ang Termux at magka-crash ang buong POS, kaya hindi na ito itutuloy.
@@ -8241,7 +8362,13 @@ app.post('/api/cloud-backup/sync', requireFeature('cloud_backup'), async (req, r
             message: walletForSync.inDebt ? buildCloudDebtPausedMessage(walletForSync, 'sync') : `Insufficient Cloud Backup tokens (balance: ${walletForSync.balanceTokens}, needed: ~${tokenCostForSyncExact} per sync on average). Please buy more Omni Tokens on the Omni Tokens page.`
         });
     }
-    const result = await performCloudBackupUpload('manual', (req.authUser && req.authUser.username) || username);
+    // Piniling listahan ng client (Backup contents). Kung hindi ipinadala (lumang UI), gamitin ang naka-save na listahan nang hindi ito pinapalitan.
+    const rawExcluded = req.body && req.body.excludedGroups;
+    if (rawExcluded !== undefined && !Array.isArray(rawExcluded)) {
+        return res.status(400).json({ success: false, message: 'Invalid backup contents selection.' });
+    }
+    const uploadOptions = Array.isArray(rawExcluded) ? { excludedGroups: rawExcluded, persistSelection: true } : undefined;
+    const result = await performCloudBackupUpload('manual', (req.authUser && req.authUser.username) || username, uploadOptions);
     if (result.body) return res.status(result.status).json(result.body);
     return res.status(result.status).json(result);
 });
@@ -13874,7 +14001,16 @@ function normalizeMatchKey(str) {
         .replace(/[^a-z0-9 ]/g, '')
         .trim();
 }
-app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 60 * 1000), requirePermission('products'), productBulkPhotoUpload.array('images', 300), (req, res) => {
+// CRASH-SAFETY: ang multer memoryStorage ay nagtatago ng LAHAT ng larawan sa RAM (hanggang 300 x 5 MB). Hinaharang ang sobrang laking upload bago pa ito mabasa.
+const BULK_PHOTO_MAX_REQUEST_BYTES = Math.max(10, Number(process.env.BULK_PHOTO_MAX_REQUEST_MB) || 150) * 1024 * 1024;
+function bulkPhotoSizeGuard(req, res, next) {
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > BULK_PHOTO_MAX_REQUEST_BYTES) {
+        return res.status(413).json({ success: false, message: `These photos total about ${(declared / 1048576).toFixed(0)} MB, which is too much to upload at once (limit ${Math.round(BULK_PHOTO_MAX_REQUEST_BYTES / 1048576)} MB). Please upload them in smaller batches.` });
+    }
+    next();
+}
+app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 60 * 1000), requirePermission('products'), bulkPhotoSizeGuard, productBulkPhotoUpload.array('images', 300), (req, res) => {
     try {
         const files = req.files || [];
         if (!files.length) {
@@ -14424,6 +14560,22 @@ function processRequestResolve(req, res) {
             writeData(FILE_STORE_SETTINGS, approved);
             if (prevBranchGroupKey && !approved.branchGroupKey) notifyRelayBranchLeave();
             logAction(username, `APPROVED Store & Sales Settings request from "${targetReq.requester}"`);
+        } else if (targetReq.type ==='UX_SETTINGS_UPDATE') {
+            // BUGFIX: this type used to fall into the product branch below (approve = nothing applied, request deleted),
+            // so an approved Appearance/UX change never reached the POS terminal or the Settings page.
+            const approvedUx = getUxSettingsPublic(targetReq.data || {});
+            if (approvedUx.lowStockAlertThreshold < 0) {
+                return res.status(400).json({ success: false, message: 'Hindi ma-apply ang Appearance/UX request: negative ang low-stock threshold.' });
+            }
+            approvedUx.updatedAt = new Date().toISOString();
+            writeData(FILE_UX_SETTINGS, approvedUx);
+            logAction(username, `APPROVED Appearance/UX Settings request from \"${targetReq.requester}\"`);
+        } else if (targetReq.type ==='ADVANCED_SETTINGS_UPDATE') {
+            // BUGFIX: same as UX_SETTINGS_UPDATE above - approved Advanced Settings requests were silently dropped.
+            const approvedAdv = getAdvancedSettingsPublic(targetReq.data || {});
+            approvedAdv.updatedAt = new Date().toISOString();
+            writeData(FILE_ADVANCED_SETTINGS, approvedAdv);
+            logAction(username, `APPROVED Advanced Settings request from \"${targetReq.requester}\"`);
         } else if (targetReq.type ==='RECEIPT_UPDATE') {
             const settings = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS);
             const d = targetReq.data || {};
@@ -17179,6 +17331,21 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
     res.json({ success: true, jobId });
     (async () => {
         try {
+            // SCALE GUARD: ang email backup ay nagkakarga ng LAHAT ng module sa RAM at ginagawang isang malaking JSON string (may indent pa),
+            // kaya sa napakalaking database ay mauubusan ng memory ang device at magka-crash ang buong POS BAGO pa makapag-reset. Hinaharang ito
+            // nang maaga, wala pang nabubura. Kapag walang larawan ang isasama, mas maluwag ang limit (hindi kasama ang HD photo sa JSON).
+            try {
+                const resetMaxMb = (Number(process.env.RESET_BACKUP_MAX_DB_MB) || 200) * (includeImages ? 1 : 3);
+                const dbBytesForReset = fs.statSync(path.join(DB_DIR, 'omnipos.db')).size;
+                if (dbBytesForReset > resetMaxMb * 1024 * 1024) {
+                    const sizeErr = new Error(`The database is ${(dbBytesForReset / 1048576).toFixed(0)} MB, too large to put into one backup email safely on this device (limit ${resetMaxMb} MB).`);
+                    sizeErr.resetStage = 'backup-size';
+                    throw sizeErr;
+                }
+            } catch (sizeCheckErr) {
+                if (sizeCheckErr && sizeCheckErr.resetStage === 'backup-size') throw sizeCheckErr;
+                /* hindi mabasa ang laki: ituloy gaya ng dati */
+            }
             updateResetJob(jobId, { status: 'preparing', percent: 5, message: 'Capturing the full database snapshot...' });
             // Kapag hindi isasama ang photo, hindi na babasahin ang HD photo sa database (main + gallery).
             const fullSnapshot = getFullDatabaseSnapshot({ excludeProductImages: !includeImages });
@@ -17477,6 +17644,8 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                         ? `The reset was stopped before anything was deleted — all your data is still intact. ${err.message} BIR records now exist on this device, so run the reset again to get the required protection.`
                         : (err && err.resetStage === 'bir-archive')
                         ? `The backup email was sent, but the sealed BIR retention copy could not be saved on this device, so the reset was stopped and NOTHING was deleted — all your data is still intact. Check that the device has free storage, then try again. Error: ${err.message}`
+                        : (err && err.resetStage === 'backup-size')
+                        ? `The reset was stopped before anything was deleted — all your data is still intact. ${err.message} Turn off "include product photos" and try again, archive old data first, or use the local database backup instead.`
                         : failedAtDbReset
                         ? `The backup email was sent, but the database could not be reset, so NOTHING was deleted from the main data (the reset is all-or-nothing). Check that the device has free storage and that the database is healthy, then try again. Error: ${err.message}`
                         : failedAtBirReset

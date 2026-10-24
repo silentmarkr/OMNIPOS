@@ -252,40 +252,158 @@ function updateNetworkPrinterStatusUI() {
     updatePrinterActiveSummaryUI();
 }
 
-function updatePrinterActiveSummaryUI() {
-    const dot = document.getElementById('printer-active-summary-dot');
-    const text = document.getElementById('printer-active-summary-text');
-    if (!dot || !text) return;
-
-    const btName = localStorage.getItem(BT_PRINTER_STORAGE_KEYS.deviceName);
-    const netSettings = getNetworkPrinterSettings();
+// ---- Printer preference + target resolver ---------------------------------------
+// Per-device settings (a printer is physically attached to ONE terminal, so these are stored in this device's
+// localStorage, exactly like the USB/Bluetooth/Network connection details). The Settings page and the POS
+// Terminal Settings modal both read/write the same keys, so they always agree with each other.
+const PRINTER_PREF_STORAGE_KEYS = {
+    preferred: 'omnipos_preferred_printer',
+    copies: 'omnipos_auto_print_copies'
+};
+const PRINTER_PREFERRED_TYPES = ['auto', 'usb', 'bluetooth', 'network', 'browser'];
+const PRINTER_TYPE_LABELS = {
+    usb: 'USB',
+    bluetooth: 'Bluetooth',
+    network: 'WiFi / LAN',
+    browser: 'Browser Print Dialog'
+};
+function getPreferredPrinterType() {
+    let saved = 'auto';
+    try { saved = localStorage.getItem(PRINTER_PREF_STORAGE_KEYS.preferred) || 'auto'; } catch (e) { /* storage blocked */ }
+    return PRINTER_PREFERRED_TYPES.indexOf(saved) !== -1 ? saved : 'auto';
+}
+function setPreferredPrinterType(type) {
+    const value = PRINTER_PREFERRED_TYPES.indexOf(type) !== -1 ? type : 'auto';
+    try { localStorage.setItem(PRINTER_PREF_STORAGE_KEYS.preferred, value); } catch (e) { /* storage blocked */ }
+    return value;
+}
+function getAutoPrintCopies() {
+    let n = 1;
+    try { n = parseInt(localStorage.getItem(PRINTER_PREF_STORAGE_KEYS.copies), 10); } catch (e) { /* storage blocked */ }
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    return Math.min(3, n);
+}
+function setAutoPrintCopies(value) {
+    let n = parseInt(value, 10);
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    n = Math.min(3, n);
+    try { localStorage.setItem(PRINTER_PREF_STORAGE_KEYS.copies, String(n)); } catch (e) { /* storage blocked */ }
+    return n;
+}
+function getPrinterAvailability() {
     const usbConfigured = (typeof isUsbPrinterConfigured === 'function') && isUsbPrinterConfigured();
     const usbReady = usbConfigured && (typeof isUsbPrinterReady === 'function') && isUsbPrinterReady();
+    let btName = null;
+    try { btName = (typeof BT_PRINTER_STORAGE_KEYS !== 'undefined') ? localStorage.getItem(BT_PRINTER_STORAGE_KEYS.deviceName) : null; } catch (e) { /* storage blocked */ }
+    const btConnected = !!(typeof btPrinterCharacteristic !== 'undefined' && btPrinterCharacteristic);
+    return {
+        usbConfigured,
+        usbReady,
+        btName,
+        btConnected,
+        btSaved: !!btName,
+        netConfigured: isNetworkPrinterConfigured()
+    };
+}
+// Decides which printer the automatic actions (auto-print, auto-open drawer, test buttons) use.
+// "auto" keeps the original priority: ready USB -> connected Bluetooth -> WiFi/LAN -> saved-but-offline USB -> browser dialog.
+// A specific choice is honoured when that printer is usable; otherwise it falls back to "auto" and reports fallback:true.
+function resolvePrinterTarget() {
+    const a = getPrinterAvailability();
+    const preferred = getPreferredPrinterType();
+    const auto = () => {
+        if (a.usbReady) return 'usb';
+        if (a.btConnected) return 'bluetooth';
+        if (a.netConfigured) return 'network';
+        if (a.usbConfigured) return 'usb';
+        return 'browser';
+    };
+    if (preferred === 'browser') return { type: 'browser', preferred, fallback: false };
+    if (preferred === 'usb' && a.usbConfigured) return { type: 'usb', preferred, fallback: false };
+    if (preferred === 'bluetooth' && a.btConnected) return { type: 'bluetooth', preferred, fallback: false };
+    if (preferred === 'network' && a.netConfigured) return { type: 'network', preferred, fallback: false };
+    return { type: auto(), preferred, fallback: preferred !== 'auto' };
+}
+function describeActivePrinter() {
+    const a = getPrinterAvailability();
     const usbLabel = (typeof getUsbPrinterDisplayName === 'function') ? getUsbPrinterDisplayName() : 'USB Printer';
-    const btConnected = !!(btName && typeof btPrinterCharacteristic !== 'undefined' && btPrinterCharacteristic);
-
-    // Priority (same order the auto-print/cash-drawer logic uses): a ready USB
-    // printer, then a connected Bluetooth printer, then a saved-but-offline USB
-    // printer, then a saved Bluetooth printer, then a configured network printer.
-    if (usbReady) {
-        dot.style.background = '#22c55e';
-        text.innerText = `Aktibong printer: USB — ${usbLabel}`;
-    } else if (btConnected) {
-        dot.style.background = '#22c55e';
-        text.innerText = `Aktibong printer: Bluetooth — ${btName}`;
-    } else if (usbConfigured) {
-        dot.style.background = '#eab308';
-        text.innerText = `Naka-save na USB printer: ${usbLabel} (isaksak o i-reconnect)`;
-    } else if (btName) {
-        dot.style.background = '#eab308';
-        text.innerText = `Naka-pair dating Bluetooth printer: ${btName} (kailangang i-reconnect)`;
-    } else if (netSettings.host) {
-        dot.style.background = '#22c55e';
-        text.innerText = `Aktibong printer: ${netSettings.connType === 'lan' ? 'LAN Cable' : 'WiFi'} — ${netSettings.host}:${netSettings.port}`;
-    } else {
-        dot.style.background = '#94a3b8';
-        text.innerText = 'Walang naka-set up na printer';
+    const net = getNetworkPrinterSettings();
+    const netLabel = `${net.connType === 'lan' ? 'LAN Cable' : 'WiFi'} — ${net.host}:${net.port}`;
+    const target = resolvePrinterTarget();
+    let dot = '#94a3b8';
+    let text = 'Walang naka-set up na printer';
+    if (target.type === 'usb') {
+        dot = a.usbReady ? '#22c55e' : '#eab308';
+        text = a.usbReady ? `Aktibong printer: USB — ${usbLabel}` : `Naka-save na USB printer: ${usbLabel} (isaksak o i-reconnect)`;
+    } else if (target.type === 'bluetooth') {
+        dot = '#22c55e';
+        text = `Aktibong printer: Bluetooth — ${a.btName || 'Bluetooth printer'}`;
+    } else if (target.type === 'network') {
+        dot = '#22c55e';
+        text = `Aktibong printer: ${netLabel}`;
+    } else if (a.btSaved) {
+        dot = '#eab308';
+        text = `Naka-pair dating Bluetooth printer: ${a.btName} (kailangang i-reconnect)`;
+    } else if (target.preferred === 'browser') {
+        dot = '#22c55e';
+        text = 'Aktibong printer: Browser Print Dialog';
     }
+    if (target.preferred !== 'auto') {
+        if (target.fallback) {
+            text += ` — hindi magamit ang napiling ${PRINTER_TYPE_LABELS[target.preferred] || target.preferred}, awtomatikong pinili ang pinakamalapit na available.`;
+            if (dot === '#22c55e') dot = '#eab308';
+        } else {
+            text += ' (manu-manong pinili)';
+        }
+    }
+    return { dot, text, target };
+}
+function updatePrinterActiveSummaryUI() {
+    const info = describeActivePrinter();
+    [['printer-active-summary-dot', 'printer-active-summary-text'], ['tset-pr-summary-dot', 'tset-pr-summary-text']].forEach(([dotId, textId]) => {
+        const dot = document.getElementById(dotId);
+        const text = document.getElementById(textId);
+        if (dot) dot.style.background = info.dot;
+        if (text) text.innerText = info.text;
+    });
+}
+function sleepPrinterMs(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+// Prints the receipt currently shown on screen on the printer chosen by resolvePrinterTarget(), `copies` times
+// (thermal printers only — the browser print dialog always prints once and lets the user pick the copies there).
+async function printReceiptViaResolvedPrinter(prefix, copies) {
+    prefix = prefix || 'r';
+    const target = resolvePrinterTarget();
+    if (target.type === 'browser') { window.print(); return target; }
+    const runners = {
+        usb: (typeof printReceiptViaUsb === 'function') ? printReceiptViaUsb : null,
+        bluetooth: (typeof printReceiptViaBluetooth === 'function') ? printReceiptViaBluetooth : null,
+        network: printReceiptViaNetworkPrinter
+    };
+    const run = runners[target.type];
+    if (!run) { window.print(); return { type: 'browser', preferred: target.preferred, fallback: true }; }
+    const total = Math.min(3, Math.max(1, parseInt(copies, 10) || 1));
+    for (let i = 0; i < total; i++) {
+        await run(prefix);
+        if (i < total - 1) await sleepPrinterMs(700);
+    }
+    return target;
+}
+async function openCashDrawerViaResolvedPrinter() {
+    const target = resolvePrinterTarget();
+    if (target.type === 'usb' && typeof openCashDrawerViaUsb === 'function') { await openCashDrawerViaUsb(); return target; }
+    if (target.type === 'bluetooth' && typeof openCashDrawerViaBluetooth === 'function') { await openCashDrawerViaBluetooth(); return target; }
+    if (target.type === 'network') { await openCashDrawerViaNetworkPrinter(); return target; }
+    return null;
+}
+async function testPrintResolvedPrinter() {
+    const target = resolvePrinterTarget();
+    if (target.type === 'usb' && typeof testPrintUsbPrinter === 'function') return testPrintUsbPrinter();
+    if (target.type === 'bluetooth' && typeof testPrintBluetoothPrinter === 'function') return testPrintBluetoothPrinter();
+    if (target.type === 'network') return testPrintNetworkPrinter();
+    if (typeof Swal !== 'undefined') {
+        Swal.fire('Walang Thermal Printer', 'Walang naka-set up na USB/Bluetooth/WiFi/LAN printer sa terminal na ito. Gagamit ng normal na Browser Print dialog ang pag-print.', 'info');
+    }
+    return null;
 }
 
 // ---- Network printer settings: save / forget -----------------------------------
