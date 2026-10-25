@@ -26,13 +26,13 @@ const OPEN_STATUSES = new Set(['new', 'preparing', 'ready']);
 const ALL_STATUSES = new Set(['new', 'preparing', 'ready', 'done', 'cancelled']);
 
 const DEFAULT_CONFIG = {
-    businessType: 'general',            // general | restaurant | store | service
+    businessType: 'general',            // general | restaurant | minimart | sari | service | pharmacy | hardware
     storeName: '',
     tagline: '',
     brandColor: '#e4572e',
     language: 'tl',                     // tl | en
     modes: { order: true, priceCheck: true, queueBoard: true },
-    orderTypes: ['Dine-in', 'Take-out'],
+    orderTypes: ['Walk-in'],
     askName: false,
     askPhone: false,
     askTable: false,
@@ -52,13 +52,73 @@ const DEFAULT_CONFIG = {
     upsellCodes: []
 };
 
+// Dine-in / table ay para sa restaurant lang. Ang ibang negosyo ay may sariling default na order type.
+const BIZ_TYPES = ['general', 'restaurant', 'minimart', 'sari', 'service', 'pharmacy', 'hardware'];
+const BIZ_ORDER_TYPES = {
+    restaurant: ['Dine-in', 'Take-out'], minimart: ['Pick-up'], sari: ['Walk-in'], service: ['Walk-in'],
+    pharmacy: ['Pick-up'], hardware: ['Pick-up', 'Delivery'], general: ['Walk-in']
+};
+// Default na mga mode ng kiosk bawat uri ng negosyo (ia-apply kapag nagpalit ng uri gamit ang Developer PIN)
+const BIZ_MODES = {
+    restaurant: { order: true, priceCheck: false, queueBoard: true },
+    minimart: { order: true, priceCheck: true, queueBoard: false },
+    sari: { order: false, priceCheck: true, queueBoard: false },
+    service: { order: true, priceCheck: false, queueBoard: true },
+    pharmacy: { order: true, priceCheck: true, queueBoard: false },
+    hardware: { order: true, priceCheck: true, queueBoard: false },
+    general: { order: true, priceCheck: true, queueBoard: true }
+};
+
+/* ---------- Developer PIN (isa para sa LAHAT ng client, itinatakda sa RELAY) ----------
+   Hindi nakaimbak sa client ang PIN o ang hash. Tinatanong ng OMNIPOS ang RELAY (/relay/client/kiosk-dev-pin/verify)
+   gamit ang credential ng activation. Kailangan ng internet; walang local na kopya na pwedeng i-bruteforce ng owner.
+   Itakda ito ng developer sa RELAY admin > Kiosk Developer PIN. */
+async function checkDevPin(deps, pin) {
+    const relayFetch = deps && deps.relayFetch;
+    const base = deps && typeof deps.relayUrl === 'function' ? deps.relayUrl() : '';
+    if (typeof relayFetch !== 'function' || !base) return { ok: false, code: 'norelay', message: 'Hindi nakakonekta sa RELAY. I-update ang hook ng kiosk sa server.js (install-kiosk-addon.js).' };
+    const p = String(pin == null ? '' : pin);
+    if (!p || p.length > 64) return { ok: false, code: 'bad', message: 'Ilagay ang Developer PIN.' };
+    try {
+        const r = await relayFetch(`${base}/relay/client/kiosk-dev-pin/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: p }) }, 15000);
+        let j = {};
+        try { j = await r.json(); } catch (e) { /* ignore */ }
+        if (r.status === 429) return { ok: false, code: 'locked', message: 'Masyadong maraming subok. Subukan ulit mamaya.' };
+        if (r.ok && j && j.ok === true) return { ok: true };
+        if (j && j.code === 'LOCKED') return { ok: false, code: 'locked', message: 'Masyadong maraming maling PIN. Subukan ulit pagkalipas ng ' + Math.ceil((j.retryAfterSec || 900) / 60) + ' minuto.' };
+        if (j && j.code === 'UNSET') return { ok: false, code: 'unset', message: 'Wala pang Developer PIN sa RELAY.' };
+        if (r.ok) return { ok: false, code: 'bad', message: 'Maling Developer PIN.' };
+        return { ok: false, code: 'relay', message: (j && j.message) || ('Hindi tinanggap ng RELAY (HTTP ' + r.status + ').') };
+    } catch (e) {
+        return { ok: false, code: 'offline', message: 'Kailangan ng internet para ma-verify ang Developer PIN sa RELAY.' };
+    }
+}
+
+function normBiz(v) { v = v === 'store' ? 'minimart' : v; return BIZ_TYPES.includes(v) ? v : 'general'; }
+
 function sanitizeConfig(input, base) {
+    const out = sanitizeConfigRaw(input, base);
+    out.businessType = normBiz(out.businessType);
+    if (out.businessType !== 'restaurant') {
+        out.orderTypes = (out.orderTypes || []).filter(x => !/dine/i.test(x));
+        out.askTable = false;
+    }
+    if (!out.orderTypes || !out.orderTypes.length) out.orderTypes = BIZ_ORDER_TYPES[out.businessType].slice();
+    return out;
+}
+
+function sanitizeConfigRaw(input, base) {
     const c = { ...DEFAULT_CONFIG, ...(base || {}) };
     const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
     const b = v => !!v;
     const arr = (v, n, m) => (Array.isArray(v) ? v : []).map(x => s(x, n)).filter(Boolean).slice(0, m);
     if (!input || typeof input !== 'object') return c;
-    if ('businessType' in input) c.businessType = ['general', 'restaurant', 'store', 'service'].includes(input.businessType) ? input.businessType : 'general';
+    if ('businessType' in input) {
+        const nb = normBiz(input.businessType);
+        // Kung nagpalit ng uri at hindi nagbigay ng bagong order types, gamitin ang default ng bagong uri.
+        if (nb !== c.businessType && !('orderTypes' in input)) c.orderTypes = BIZ_ORDER_TYPES[nb].slice();
+        c.businessType = nb;
+    }
     if ('storeName' in input) c.storeName = s(input.storeName, 60);
     if ('tagline' in input) c.tagline = s(input.tagline, 100);
     if ('brandColor' in input) c.brandColor = /^#[0-9a-fA-F]{6}$/.test(input.brandColor) ? input.brandColor : DEFAULT_CONFIG.brandColor;
@@ -97,7 +157,7 @@ function todayKey(d) {
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
 
 module.exports = function registerKiosk(deps) {
-    const { app, readData, writeData, readProductsNoImages, logAction, rateLimit } = deps;
+    const { app, readData, writeData, readProductsNoImages, logAction, rateLimit } = deps; // deps.relayFetch / deps.relayUrl: para sa Developer PIN sa RELAY
     const noop = (req, res, next) => next();
     const limit = (name, max, ms) => (typeof rateLimit === 'function' ? rateLimit(name, max, ms) : noop);
 
@@ -343,12 +403,26 @@ module.exports = function registerKiosk(deps) {
     });
 
     app.get('/api/kiosk/config', (req, res) => { noStore(res); res.json({ success: true, config: getConfig() }); });
-    app.put('/api/kiosk/config', (req, res) => {
+    app.put('/api/kiosk/config', async (req, res) => {
         if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin lang ang pwedeng mag-edit ng kiosk settings.' });
-        const cfg = sanitizeConfig((req.body || {}).config, getConfig());
+        const cur = getConfig();
+        const cfg = sanitizeConfig((req.body || {}).config, cur);
+        // Ang pagpapalit ng Uri ng negosyo (na nagtatakda ng buttons/rules/order types) ay Developer PIN lang.
+        if (cfg.businessType !== cur.businessType) {
+            const chk = await checkDevPin(deps, (req.body || {}).devPin);
+            if (!chk.ok) return res.status(403).json({ success: false, devPinRequired: true, message: 'Developer PIN ang kailangan para palitan ang Uri ng negosyo. ' + chk.message });
+            cfg.modes = { ...BIZ_MODES[cfg.businessType] };
+            try { logAction(req.authUser.username, 'Kiosk business type: ' + cur.businessType + ' -> ' + cfg.businessType); } catch (e) { /* ignore */ }
+        }
         writeData(FILE_CONFIG, cfg);
         try { logAction(req.authUser.username, 'Updated Kiosk settings'); } catch (e) { /* ignore */ }
         res.json({ success: true, config: cfg });
     });
+    app.post('/api/kiosk/dev-verify', limit('kiosk-dev', 20, 10 * 60 * 1000), async (req, res) => {
+        if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin lang.' });
+        const chk = await checkDevPin(deps, (req.body || {}).devPin);
+        res.status(chk.ok ? 200 : 403).json({ success: chk.ok, message: chk.message || '' });
+    });
 };
 module.exports.sanitizeConfig = sanitizeConfig;
+module.exports.BIZ_MODES = BIZ_MODES;

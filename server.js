@@ -23130,7 +23130,7 @@ registerMarketplace({
     logAction, transactionsMutexRunExclusive, rateLimit, FILE_PRODUCTS, isDemoActive
 });
 // Self-Order Kiosk (OMNIKiosk app) — tingnan ang kiosk.js
-require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit });
+require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL });
 const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
 async function startOmniposServer() {
     await restoreFromCloudIfNeeded();

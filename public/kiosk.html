@@ -24,7 +24,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .bar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line)}
 .bar .logo{font-weight:800;font-size:1.3em;color:var(--brand);flex:0 0 auto}
 .bar .sp{flex:1}
-.search{flex:1;max-width:420px;height:48px;border:2px solid var(--line);border-radius:24px;padding:0 18px;background:#fff}
+.search{flex:1 1 150px;min-width:0;max-width:520px;color:var(--ink);height:48px;border:2px solid var(--line);border-radius:24px;padding:0 18px;background:#fff}
 .chip{height:44px;padding:0 16px;border-radius:22px;background:#fff;border:2px solid var(--line);font-weight:600;display:inline-flex;align-items:center}
 #offline{background:#b45309;color:#fff;text-align:center;padding:6px;font-weight:600}
 /* home */
@@ -32,8 +32,11 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 #home h1{margin:0;color:#fff;font-size:calc(3em);line-height:1.1}
 #home p{margin:0;color:#ffffffcc;font-size:1.4em}
 #home .modes{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-top:12px}
-#home .modes .btn{background:#fff;color:var(--ink)}
-#home .modes .btn.primary{background:var(--brand);color:#fff;box-shadow:0 0 0 4px #fff}
+#home .modes .btn{background:#fff;color:#1d1b19;min-width:min(520px,86%)}
+html.dark #home .modes .btn:not(.primary){background:#fff;color:#1d1b19}
+#home .modes{flex-direction:column;align-items:center;width:100%}
+#home .tools{position:absolute;right:16px;top:14px;display:flex;gap:8px;z-index:2}#home .tools .lang{position:static;min-width:56px;justify-content:center}
+#home .modes .btn.primary{background:var(--brand);color:#fff!important;box-shadow:0 0 0 4px #fff}
 #feat{display:flex;gap:14px;overflow:hidden;max-width:100%;margin-top:6px}
 #feat .f{background:#ffffff22;color:#fff;border-radius:16px;padding:10px 16px;font-weight:600;white-space:nowrap}
 #home .tiny{position:absolute;left:0;top:0;width:90px;height:90px}
@@ -89,7 +92,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 html.dark{--bg:#15130f;--card:#25221e;--ink:#f3efe9;--mute:#a59d93;--line:#3b3631}
 html.dark .opt,html.dark .search,html.dark .chip,html.dark .btn.ghost,html.dark .field input,html.dark .field textarea,html.dark .lang,html.dark .p,html.dark #q .n{background:var(--card);color:var(--ink)}
 html.dark .qty button,html.dark .pin button{background:#352f2a}
-#home #dk{right:130px}#clk{font-weight:700;opacity:.9}
+#clk{font-weight:700;opacity:.9}
 .th{width:44px;height:44px;border-radius:10px;background:#eee center/cover;flex:0 0 auto;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}
 .steps{display:flex;gap:6px;margin-bottom:14px}.steps i{flex:1;height:6px;border-radius:3px;background:var(--line)}.steps i.on{background:var(--brand)}
 .err{color:var(--bad);font-weight:700;min-height:1.3em;margin-top:6px}.chk{display:flex;gap:10px;align-items:center;font-weight:600}.chk input{width:26px;height:26px}
@@ -146,7 +149,16 @@ html.pv .bar{gap:8px;padding:8px 10px}html.pv .bar .search{height:42px}html.pv .
 #pc .body{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;align-items:center;gap:16px}
 .pcard{background:var(--card);border-radius:24px;padding:24px;width:min(720px,100%);display:flex;gap:22px;align-items:center;box-shadow:0 2px 8px #0001}
 .pcard .img{width:200px;height:200px;border-radius:18px;background:#eee center/cover;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:4em;color:#fff;font-weight:800}
-.pcard .big{font-size:3.4em;font-weight:900;color:var(--brand);line-height:1.1}
+.pcard .big{font-size:clamp(1.8em,9vw,3.4em);font-weight:900;color:var(--brand);line-height:1.1;overflow-wrap:anywhere}
+.pcard{max-width:100%;min-width:0;overflow:hidden}.pcard>div{min-width:0}
+.pcard .img{max-width:42%;height:auto;aspect-ratio:1}
+.pcard.li{padding:12px;gap:12px;width:100%}.pcard.li .img{width:84px;max-width:84px;font-size:2em;border-radius:14px}
+.pcard.li .nm{font-weight:800;font-size:1.15em;line-height:1.2;overflow-wrap:anywhere}
+.pcard.li .big{font-size:clamp(1.3em,6.5vw,2em)}
+.pcard .go{flex:0 0 auto;width:52px;min-width:52px;min-height:52px;padding:0;font-size:1.6em}
+#pc .body{overflow-x:hidden}#pcr{max-width:760px;margin:0 auto}
+@media (max-width:640px){.pcard.det{flex-direction:column;text-align:center;padding:18px}.pcard.det .img{width:min(60%,240px);max-width:none}}
+html.pv .pcard.det{flex-direction:column;text-align:center;padding:18px}html.pv .pcard.det .img{width:min(60%,240px);max-width:none}
 .hint{color:var(--mute);text-align:center;font-size:1.2em;padding:30px}
 /* queue */
 #q .cols{flex:1;display:flex;gap:0}
@@ -163,6 +175,11 @@ html.pv .bar{gap:8px;padding:8px 10px}html.pv .bar .search{height:42px}html.pv .
 .spin{width:44px;height:44px;border:5px solid #ddd;border-top-color:var(--brand);border-radius:50%;animation:s 1s linear infinite;margin:30px auto}
 @keyframes s{to{transform:rotate(360deg)}}
 .rowx{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+html.pv .bar .lang .ln{display:none}html.pv .bar .lang{min-width:44px;padding:0 12px;justify-content:center}
+html.pv .bar .search{flex:1 1 110px;min-width:110px;font-size:.95em}html.pv .bar .chip{padding:0 12px}html.pv .bar .sp{display:none}
+html.pv .p .row{flex-wrap:wrap;row-gap:2px}html.pv .p .row .pr{font-size:.95em;white-space:nowrap}
+html.pv .p .nm{-webkit-line-clamp:3;font-size:1em}
+html.pv .p .row .add{width:40px;height:40px}
 </style>
 </head>
 <body>
@@ -189,11 +206,31 @@ const PRE={restaurant:{t:['🍔 Restaurant','🍔 Restaurant'],v:{confirm:1,askP
  hardware:{t:['🔧 Hardware / Wholesale','🔧 Hardware / Wholesale'],v:{confirm:1,askAddr:1,askPay:1,askPickup:1,askDisc:0,askAllergy:0,askPax:0,askAppt:0,askRef:0,rxNotice:0,tableDine:0,nameTake:1,ageCheck:0}}};
 let sortMode='';
 const L=(a,b)=>LANG==='tl'?a:b;
-function R(){const r={};RD.forEach(d=>r[d[0]]=d[4]);return Object.assign(r,S.rules||{})}
+/* Uri ng negosyo: ang server config (Counter > Settings) ang masusunod; kung 'general', ang preset na pinili sa kiosk. */
+const BDEF={restaurant:'Dine-in',minimart:'Pick-up',sari:'Walk-in',service:'Walk-in',pharmacy:'Pick-up',hardware:'Pick-up',general:'Walk-in'};
+function BIZ(){let k=(CFG&&CFG.businessType)||'general';if(k==='store')k='minimart';return PRE[k]?k:'general'}
+/* Aling rules ang may saysay sa bawat uri (ang Dine-in/table/party size ay restaurant lang) */
+const COMMON=['confirm','minOrder','maxItems','hours','open','close','nameTake','phoneCheck','askPay','terms','banner','sortBtn'];
+const RV={restaurant:COMMON.concat(['tableDine','askPax','askAllergy','askPickup','askDisc','askAddr','ageCheck']),
+ minimart:COMMON.concat(['askPickup','askDisc','askAddr','ageCheck']),
+ sari:COMMON.concat(['askPickup','askAddr','ageCheck']),
+ service:COMMON.concat(['askAppt','askRef','askPickup','askDisc']),
+ pharmacy:COMMON.concat(['rxNotice','askDisc','askAllergy','askPickup']),
+ hardware:COMMON.concat(['askAddr','askPickup','ageCheck']),
+ general:COMMON.concat(['askPickup','askDisc','askAddr','askRef','askAppt','rxNotice','ageCheck'])};
+function visRules(){return RV[BIZ()]||RV.general}
+function R(){const b=BIZ(),r={};RD.forEach(d=>r[d[0]]=d[4]);if(PRE[b])Object.assign(r,PRE[b].v);Object.assign(r,S.rules||{});const vis=visRules();RD.forEach(d=>{if(d[1]==='b'&&!vis.includes(d[0]))r[d[0]]=false});return r}
+function rdLabel(d){const b=BIZ();if(d[0]==='nameTake'&&b!=='restaurant')return [d[2].replace(' kung Take-out',' ng customer'),'Ask customer name'];return [d[2],d[3]]}
+function orderTypesFor(){const b=BIZ();let ty=(CFG.orderTypes||[]).filter(x=>b==='restaurant'||!/dine/i.test(x));if(!ty.length)ty=[BDEF[b]||'Walk-in'];return ty}
 function isOpen(){const r=R();if(!r.hours)return true;const n=new Date(),m=n.getHours()*60+n.getMinutes(),f=x=>{const a=String(x).split(':');return (+a[0]||0)*60+(+a[1]||0)},o=f(r.open),c=f(r.close);return o<=c?(m>=o&&m<c):(m>=o||m<c)}
 function toggleDark(){S.dark=!S.dark;saveSettings(S);applyTheme();go(view==='done'?'home':view)}
 function toggleLang(){setLang(LANG==='tl'?'en':'tl')}
-const t=k=>(T[LANG]&&T[LANG][k])||T.en[k]||k;
+const BL={service:{tl:{start:'Mag-book / Mag-iwan ng item',q:'Status ng Order',place:'Ilagay ang Booking',cart:'Mga serbisyo mo',empty:'Wala pang napipiling serbisyo.'},en:{start:'Book / Drop off',q:'Order Status',place:'Place Booking',cart:'Your services',empty:'No service selected yet.'}},
+ pharmacy:{tl:{pc:'Presyo ng Gamot'},en:{pc:'Medicine Price Check'}},
+ hardware:{tl:{start:'Mag-order / Humingi ng presyo'},en:{start:'Order / Get a quote'}},
+ sari:{tl:{pc:'Tingnan ang Presyo'},en:{pc:'Check Price'}}};
+const BPRIMARY={sari:'pc',pharmacy:'pc'};
+const t=k=>{const b=BL[BIZ()];return (b&&b[LANG]&&b[LANG][k])||(T[LANG]&&T[LANG][k])||T.en[k]||k};
 
 /* ---------- local settings (server, login, pin) ---------- */
 function loadSettings(){try{const s=NATIVE?NATIVE.getConfig():localStorage.getItem('omnikiosk');return s?JSON.parse(s):{}}catch(e){return {}}}
@@ -300,20 +337,20 @@ function rHome(){
   const m=CFG.modes||{order:true};
   const feat=(CFG.featuredCodes||[]).map(prod).filter(Boolean).slice(0,6);
   app.innerHTML=`<div class="screen" id="home">
-   <div class="tiny" id="tiny"></div><button class="lang" id="lg">🌐 ${esc(t('lang'))}</button><button class="lang" id="dk">${S.dark?'☀️':'🌙'}</button>
+   <div class="tiny" id="tiny"></div><div class="tools"><button class="lang" id="dk">${S.dark?'☀️':'🌙'}</button><button class="lang" id="lg">🌐 ${esc(t('lang'))}</button></div>
    ${online?'':`<div id="offline" style="position:absolute;top:0;left:0;right:0">${esc(offMsg())}</div>`}
    <h1>${esc(CFG.storeName||STORE.branchName||t('welcome'))}</h1>
    <p>${esc(CFG.tagline||'')}</p><p id="clk"></p>${R().banner?`<div class="f" style="background:#ffffff33;color:#fff;border-radius:16px;padding:10px 18px;font-weight:700;max-width:90%">📣 ${esc(R().banner)}</div>`:''}
    ${feat.length?`<div id="feat">${feat.map(p=>`<div class="f">⭐ ${esc(p.name)} · ${money(p.price)}</div>`).join('')}</div>`:''}
    <div class="modes">
-     ${m.order?`<button class="btn big primary" data-go="order">🛒 ${esc(t('start'))}</button>`:''}
-     ${m.priceCheck?`<button class="btn big" data-go="pc">🏷️ ${esc(t('pc'))}</button>`:''}
+     ${m.order?`<button class="btn big ${BPRIMARY[BIZ()]==='pc'&&m.priceCheck?'':'primary'}" data-go="order">🛒 ${esc(t('start'))}</button>`:''}
+     ${m.priceCheck?`<button class="btn big ${BPRIMARY[BIZ()]==='pc'?'primary':''}" data-go="pc">🏷️ ${esc(t('pc'))}</button>`:''}
      ${m.queueBoard?`<button class="btn big" data-go="q">📣 ${esc(t('q'))}</button>`:''}
    </div></div>`;
   $('#tiny').onclick=adminTap;$('#lg').onclick=toggleLang;$('#dk').onclick=toggleDark;tickClock();
   app.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{if(b.dataset.go==='order'&&!isOpen()){toast(L('Sarado pa ang tindahan. Bukas ng ','Store is closed. Opens at ')+R().open,3500);return}if(b.dataset.go==='order')cart=[];curCat='__all';query='';go(b.dataset.go)});
 }
-function topBar(title,extra){return `<div class="bar"><button class="chip" id="bk">← ${esc(t('back'))}</button><div class="logo">${esc(title)}</div>${extra||''}<button class="lang" id="lg">🌐 ${esc(t('lang'))}</button></div>${online?'':`<div id="offline">${esc(offMsg())}</div>`}`}
+function topBar(title,extra){return `<div class="bar"><button class="chip" id="bk">← ${esc(t('back'))}</button><div class="logo">${esc(title)}</div>${extra||''}<button class="lang" id="lg">🌐<span class="ln"> ${esc(t('lang'))}</span></button></div>${online?'':`<div id="offline">${esc(offMsg())}</div>`}`}
 function rOrder(){
   app.innerHTML=`<div class="screen" id="order">${topBar(CFG.storeName||t('order'),`<input class="search" id="sq" placeholder="${esc(t('search'))}" value="${esc(query)}"><span class="sp"></span>${R().sortBtn?`<button class="chip" id="srt">⇅ ${sortMode==='az'?'A–Z':sortMode==='pr'?'₱↑':L('Ayos','Sort')}</button>`:''}`)}
    <div class="stepbar" id="stepbar"></div><div class="body"><div class="cats" id="cats"></div><div class="grid" id="grid"></div><div id="pager"></div><div class="cart" id="cart"></div></div><button id="mini"></button></div>`;
@@ -441,11 +478,11 @@ function startCheckout(){
 }
 function checkoutForm(){
   startCheckout.shown=false;
-  const r=R(),types=CFG.orderTypes||['Take-out'];
+  const r=R(),biz=BIZ(),types=orderTypesFor();
   const st={pax:'',appt:'',apptTime:'',ref:'',addr:'',rx:false,adult:false,type:types[0],name:'',phone:'',table:'',pay:'Cash',pickup:'ASAP',disc:'',discId:'',allergy:'',note:'',agree:false};
-  const AGE=/alcohol|beer|liquor|wine|gin|rum|cigar|tobacco|yosi|vape|alak|tanduay|emperador/i,needAdult=()=>r.ageCheck&&cart.some(l=>{const q=prod(l.code)||{};return AGE.test((q.category||'')+' '+(q.name||''))}),needAddr=()=>r.askAddr&&/deliver/i.test(st.type),needPax=()=>r.askPax&&/dine/i.test(st.type);
+  const AGE=/alcohol|beer|liquor|wine|gin|rum|cigar|tobacco|yosi|vape|alak|tanduay|emperador/i,needAdult=()=>r.ageCheck&&cart.some(l=>{const q=prod(l.code)||{};return AGE.test((q.category||'')+' '+(q.name||''))}),needAddr=()=>r.askAddr&&/deliver/i.test(st.type),needPax=()=>biz==='restaurant'&&r.askPax&&/dine/i.test(st.type);
   const dine=()=>/dine/i.test(st.type),take=()=>/take|pick/i.test(st.type);
-  const needTable=()=>CFG.askTable||(r.tableDine&&dine()),needName=()=>CFG.askName||(r.nameTake&&take()),needPhone=()=>!!CFG.askPhone;
+  const needTable=()=>biz==='restaurant'&&(CFG.askTable||(r.tableDine&&dine())),needName=()=>CFG.askName||(r.nameTake&&(biz!=='restaurant'||take())),needPhone=()=>!!CFG.askPhone;
   const has={type:()=>types.length>1||needTable()||needPax(),info:()=>needName()||needPhone()||needAddr(),extra:()=>r.askPay||r.askPickup||r.askDisc||r.askAllergy||CFG.orderNote||r.askAppt||r.askRef||r.rxNotice||needAdult(),review:()=>true};
   let idx=-1;const order=['type','info','extra','review'];
   const steps=()=>order.filter(k=>k==='review'?(r.confirm||order.filter(x=>x!=='review'&&has[x]()).length===0):has[k]());
@@ -487,7 +524,7 @@ function checkoutForm(){
       ${r.askDisc?`<div class="field"><label>${esc(L('May discount ba? (kailangan ng ID sa counter)','Discount? (ID required at counter)'))}</label>${sel('disc',[['',L('Wala','None')],['Senior','Senior'],['PWD','PWD']])}${st.disc?`<input data-f="discId" placeholder="ID no." value="${esc(st.discId)}" style="margin-top:8px">`:''}</div>`:''}
       ${r.askAllergy?`<div class="field"><label>${esc(L('Allergy / special request','Allergy / special request'))}</label><input data-f="allergy" maxlength="60" value="${esc(st.allergy)}"></div>`:''}
       ${CFG.orderNote?`<div class="field"><label>${esc(t('note'))}</label><textarea data-f="note" rows="2" maxlength="80">${esc(st.note)}</textarea></div>`:''}`;
-    if(k==='review')h=`<div style="font-weight:700;margin-bottom:8px">${esc(st.type)}${st.table?' · '+esc(t('table'))+' '+esc(st.table):''}${st.name?' · '+esc(st.name):''}</div>`+cart.map(l=>`<div class="rowx" style="justify-content:space-between;padding:4px 0"><span>${l.qty}× ${esc(l.name)}${l.unit?` (${esc(l.unit)})`:''}${l.options.length?` <small style="color:var(--mute)">(${esc(l.options.map(o=>o.name).join(', '))})</small>`:''}</span><b>${money(lineTotal(l))}</b></div>`).join('')+(st.disc?`<div style="color:var(--mute);margin-top:6px">${esc(st.disc)} ID: ${esc(st.discId)} — ${esc(L('i-verify sa counter','verified at counter'))}</div>`:'')+(r.terms?`<label class="chk" style="margin-top:12px"><input type="checkbox" data-f="agree" ${st.agree?'checked':''}> ${esc(L('Sumasang-ayon ako na magbayad sa counter at tama ang order ko.','I agree to pay at the counter and my order is correct.'))}</label>`:'');
+    if(k==='review')h=`<div style="font-weight:700;margin-bottom:8px">${types.length>1?esc(st.type):''}${st.table?' · '+esc(t('table'))+' '+esc(st.table):''}${st.name?' · '+esc(st.name):''}</div>`+cart.map(l=>`<div class="rowx" style="justify-content:space-between;padding:4px 0"><span>${l.qty}× ${esc(l.name)}${l.unit?` (${esc(l.unit)})`:''}${l.options.length?` <small style="color:var(--mute)">(${esc(l.options.map(o=>o.name).join(', '))})</small>`:''}</span><b>${money(lineTotal(l))}</b></div>`).join('')+(st.disc?`<div style="color:var(--mute);margin-top:6px">${esc(st.disc)} ID: ${esc(st.discId)} — ${esc(L('i-verify sa counter','verified at counter'))}</div>`:'')+(r.terms?`<label class="chk" style="margin-top:12px"><input type="checkbox" data-f="agree" ${st.agree?'checked':''}> ${esc(L('Sumasang-ayon ako na magbayad sa counter at tama ang order ko.','I agree to pay at the counter and my order is correct.'))}</label>`:'');
     box.innerHTML=`<header>${esc(t('checkout'))} · ${money(cartTotal())}</header><div class="c"><div class="steps">${S2.map((_,i)=>`<i class="${i<=idx?'on':''}"></i>`).join('')}</div>${h}<div class="err" id="er"></div></div><footer><button class="btn ghost" id="x">${esc(idx?t('back'):t('cancel'))}</button><button class="btn ${last?'ok big':''}" id="go" style="min-height:60px">${esc(last?t('place'):L('Susunod →','Next →'))}</button></footer>`;
     box.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{tidy();st[b.dataset.s]=b.dataset.v;if(b.dataset.s==='disc'&&!b.dataset.v)st.discId='';paint()});
     $('#x',box).onclick=()=>{tidy();if(idx>0){idx--;paint()}else m.close()};
@@ -510,18 +547,19 @@ function showDone(o,total){
 /* ---------- price check ---------- */
 let pcShown=null;
 function rPC(){
-  app.innerHTML=`<div class="screen" id="pc">${topBar(t('pc'),`<input class="search" id="pq" placeholder="${esc(t('search'))}"><span class="sp"></span>`)}
+  app.innerHTML=`<div class="screen" id="pc">${topBar(t('pc'),`<input class="search" id="pq" placeholder="${esc(t('search'))}" autocomplete="off">`)}
    <div class="body"><div id="pcr" class="hint">📷 ${esc(t('scan'))}</div></div></div>`;
   $('#lg').onclick=toggleLang;$('#bk').onclick=()=>go('home');
   const pq=$('#pq');pq.oninput=()=>{const q=pq.value.trim().toLowerCase();if(!q){$('#pcr').className='hint';$('#pcr').innerHTML='📷 '+esc(t('scan'));return}
-    const list=CAT.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.toLowerCase()===q).slice(0,12);
-    $('#pcr').className='';$('#pcr').style.width='100%';$('#pcr').innerHTML=list.length?list.map(p=>`<div style="display:flex;justify-content:center;margin-bottom:12px"><div class="pcard" style="padding:14px">${imgDiv(p,'img').replace('class="img"','class="img" style="width:90px;height:90px;font-size:2em;'+'"')}<div style="flex:1"><b style="font-size:1.2em">${esc(p.name)}</b><div class="big" style="font-size:2em">${money(p.price)}</div></div><button class="btn ghost" data-sh="${esc(p.code)}">›</button></div></div>`).join(''):`<div class="hint">${esc(t('nf'))}</div>`;
+    const rank=p=>{const n=p.name.toLowerCase();if(String(p.code).toLowerCase()===q)return 0;if(n.startsWith(q))return 1;if(n.split(/\s+/).some(w=>w.startsWith(q)))return 2;if(n.includes(q))return 3;if(String(p.category||'').toLowerCase().includes(q))return 4;return 9};
+    const list=CAT.products.map(p=>[rank(p),p]).filter(x=>x[0]<9).sort((a,b)=>a[0]-b[0]||a[1].name.localeCompare(b[1].name)).map(x=>x[1]).slice(0,12);
+    $('#pcr').className='';$('#pcr').style.width='100%';$('#pcr').innerHTML=list.length?list.map(p=>`<div style="margin-bottom:12px"><div class="pcard li">${imgDiv(p,'img')}<div style="flex:1;min-width:0"><div class="nm">${esc(p.name)}</div><div class="big">${money(p.price)}</div>${p.inStock?'':`<div style="color:var(--bad);font-weight:700">${esc(t('oos'))}</div>`}</div><button class="btn ghost go" data-sh="${esc(p.code)}" aria-label="${esc(p.name)}">›</button></div></div>`).join(''):`<div class="hint">${esc(t('nf'))}</div>`;
     fetchImages(list.map(p=>p.code));paintImages();$('#pcr').querySelectorAll('[data-sh]').forEach(b=>b.onclick=()=>showPC(prod(b.dataset.sh)))};
 }
 function showPC(p,level){
   if(!p){$('#pcr').className='hint';$('#pcr').textContent='❌ '+t('nf');return}
   $('#pcr').className='';$('#pcr').style.width='100%';
-  $('#pcr').innerHTML=`<div style="display:flex;justify-content:center"><div class="pcard">${imgDiv(p,'img')}<div style="flex:1;min-width:0"><div style="font-size:1.6em;font-weight:800;line-height:1.2">${esc(p.name)}</div>
+  $('#pcr').innerHTML=`<div style="display:flex;justify-content:center"><div class="pcard det">${imgDiv(p,'img')}<div style="flex:1;min-width:0"><div style="font-size:1.6em;font-weight:800;line-height:1.2">${esc(p.name)}</div>
    <div style="color:var(--mute)">${esc(p.category)}${level?' · '+esc(level):''}</div><div class="big">${money(p.price)}${p.baseUnit?`<small style="font-size:.35em;color:var(--mute)"> /${esc(p.baseUnit)}</small>`:''}</div>
    ${p.uom.map(u=>`<div style="font-weight:600">${esc(u.name)}: ${money(u.fixedPrice>0?u.fixedPrice:p.price*u.factor)}</div>`).join('')}
    <div style="margin-top:8px;font-weight:700;color:${p.inStock?'var(--ok)':'var(--bad)'}">${p.inStock?(CFG.showStock?p.stock+' '+esc(t('left')):'✔ '+esc(t('inst'))):esc(t('oos'))}</div></div></div></div>`;
@@ -584,10 +622,12 @@ function adminSheet(){
   if(NATIVE){$('#a4',m).onclick=()=>NATIVE.exitKiosk();$('#a5',m).onclick=()=>{S.autostart=S.autostart===false;saveSettings(S);try{NATIVE.setAutostart(S.autostart!==false)}catch(e){}m.close();adminSheet()}}
 }
 function rulesEditor(){
-  const r=R();const m=modal(`<header>📋 ${esc(L('Mga rule ng checkout','Checkout rules'))}</header><div class="c"><div style="font-weight:700;margin-bottom:6px">${esc(L('Mabilis na setup ayon sa negosyo','Quick setup by business type'))}</div><div class="seg" style="margin-bottom:14px">${Object.keys(PRE).map(k=>`<button class="opt" data-pre="${k}">${esc(L(PRE[k].t[0],PRE[k].t[1]))}</button>`).join('')}</div>${RD.map(d=>d[1]==='b'?`<label class="chk field"><input type="checkbox" data-k="${d[0]}" ${r[d[0]]?'checked':''}> ${esc(L(d[2],d[3]))}</label>`:`<div class="field"><label>${esc(L(d[2],d[3]))}</label><input data-k="${d[0]}" value="${esc(r[d[0]])}" ${d[1]==='n'?'inputmode="decimal"':''}></div>`).join('')}</div><footer><button class="btn ghost" id="r0">${esc(t('cancel'))}</button><button class="btn" id="r1">${esc(t('okb'))}</button></footer>`);
-  m.querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{S.rules=Object.assign({},R(),PRE[b.dataset.pre].v);saveSettings(S);m.close();rulesEditor();toast('✓ '+L(PRE[b.dataset.pre].t[0],PRE[b.dataset.pre].t[1]))});
+  const r=R(),vis=visRules(),b=BIZ();
+  const field=d=>{const lb=rdLabel(d);return d[1]==='b'?`<label class="chk field"><input type="checkbox" data-k="${d[0]}" ${r[d[0]]?'checked':''}> ${esc(L(lb[0],lb[1]))}</label>`:`<div class="field"><label>${esc(L(lb[0],lb[1]))}</label><input data-k="${d[0]}" value="${esc(r[d[0]])}" ${d[1]==='n'?'inputmode="decimal"':''}></div>`};
+  const bn=PRE[b]?L(PRE[b].t[0],PRE[b].t[1]):L('General (lahat)','General (all)');
+  const m=modal(`<header>📋 ${esc(L('Mga rule ng checkout','Checkout rules'))}</header><div class="c"><div style="font-weight:700;margin-bottom:6px">${esc(L('Uri ng negosyo','Business type'))}: ${esc(bn)} 🔒</div><div style="color:var(--mute);margin-bottom:12px;font-size:.9em">${esc(L('Itinakda ng developer ang uri ng negosyo. Ang mga rule sa ibaba ay yung akma lang dito.','The developer sets the business type. Only rules that fit it are shown below.'))}</div>${RD.filter(d=>vis.includes(d[0])).map(field).join('')}</div><footer><button class="btn ghost" id="r0">${esc(t('cancel'))}</button><button class="btn" id="r1">${esc(t('okb'))}</button></footer>`);
   $('#r0',m).onclick=()=>m.close();
-  $('#r1',m).onclick=()=>{const o={};m.querySelectorAll('[data-k]').forEach(e=>{const d=RD.find(x=>x[0]===e.dataset.k);o[e.dataset.k]=d[1]==='b'?e.checked:d[1]==='n'?(parseFloat(e.value)||0):e.value.trim()});S.rules=o;saveSettings(S);m.close();toast('✓')};
+  $('#r1',m).onclick=()=>{const o=Object.assign({},S.rules||{});m.querySelectorAll('[data-k]').forEach(e=>{const d=RD.find(x=>x[0]===e.dataset.k);o[e.dataset.k]=d[1]==='b'?e.checked:d[1]==='n'?(parseFloat(e.value)||0):e.value.trim()});S.rules=o;saveSettings(S);m.close();toast('✓')};
 }
 function setupScreen(msg){
   const m=modal(`<header>${esc(t('setup'))} · <button class="lang" id="s_lg" style="height:34px">🌐 ${esc(t('lang'))}</button></header><div class="c">
