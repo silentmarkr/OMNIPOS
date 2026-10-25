@@ -1,43 +1,53 @@
 <!DOCTYPE html>
 <html lang="tl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kiosk Counter · OMNIPOS</title>
+<script>(function(){try{var o=localStorage.getItem('kc_theme'),t=localStorage.getItem('omnipos_theme');if(!t)t=localStorage.getItem('omnipos_darkmode')==='true'?'dark':'day';var d=(o==='day'||o==='dark')?o==='dark':t!=='day';document.documentElement.classList.toggle('dark',d)}catch(e){}})()</script>
 <style>
-:root{--b:#e4572e;--bg:#f4f1ed;--ink:#1d1b19;--m:#7a736c;--l:#e3ddd5}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-header{display:flex;gap:8px;align-items:center;padding:10px 14px;background:#fff;border-bottom:1px solid var(--l);position:sticky;top:0;z-index:5;flex-wrap:wrap}
-header b{color:var(--b);font-size:1.15em;margin-right:8px}
-button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--b);color:#fff;font-weight:700;cursor:pointer}
-button.g{background:#fff;color:var(--ink);border:2px solid var(--l)}button.k{background:#1f9d55}button.r{background:#d33}button.on{background:#2b2724;color:#fff}
+:root{--b:#2563eb;--bh:#1d4ed8;--bg:#f4f7fb;--card:#ffffff;--ink:#1e293b;--m:#64748b;--l:#e2e8f0;--ok:#16a34a;--bad:#dc2626;--warn:#eab308;--warnt:#b45309;--soft:#eff6ff;--alt:#eef2f7;--navy:#0f172a;--graceb:#fef3c7;--graceln:#fde68a;--backdrop:radial-gradient(circle at 15% 20%,rgba(56,189,248,.07),transparent 40%),radial-gradient(circle at 85% 80%,rgba(168,85,247,.06),transparent 42%),#f4f7fb}
+/* Kulay ng OmniPOS (galing sa style.css ng OmniPOS): day #f4f7fb / #2563eb, dark #121218 / #7c5cff. Sumusunod sa napiling theme ng OmniPOS. */
+html.dark{--b:#7c5cff;--bh:#6a48ff;--bg:#121218;--card:#1c1c24;--ink:#f5f5f7;--m:#9a9ba8;--l:#262733;--soft:rgba(124,92,255,.16);--alt:#22232d;--navy:#22232d;--warnt:#fbbf24;--graceb:rgba(234,179,8,.14);--graceln:rgba(234,179,8,.35);--backdrop:radial-gradient(circle at 15% 20%,rgba(56,189,248,.08),transparent 40%),radial-gradient(circle at 85% 80%,rgba(192,132,252,.07),transparent 42%),#121218;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,sans-serif;background:var(--backdrop);background-attachment:fixed;color:var(--ink);min-height:100vh}
+header{display:flex;gap:8px;align-items:center;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--l);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header b{color:var(--b);font-size:1.15em;margin-right:8px;display:inline-flex;align-items:center;gap:8px}
+.mk{width:1.3em;height:1.3em;flex:0 0 auto;color:var(--b)}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--b);color:#fff;font-weight:700;cursor:pointer;max-width:100%;white-space:normal;line-height:1.2;overflow-wrap:anywhere}
+button:hover{background:var(--bh)}
+button.g{background:var(--card);color:var(--ink);border:2px solid var(--l)}button.g:hover{background:var(--alt)}button.k{background:var(--ok)}button.r{background:var(--bad)}button.on{background:var(--navy);color:#fff}
 main{padding:14px;max-width:1100px;margin:auto}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
-.o{background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 3px #0002;border-left:8px solid var(--b)}
-.o.preparing{border-color:#f59e0b}.o.ready{border-color:#1f9d55}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr));gap:12px}
+.o{background:var(--card);border-radius:14px;padding:14px;box-shadow:0 1px 3px #0002;border-left:8px solid var(--b);min-width:0;overflow-wrap:anywhere}
+.o.preparing{border-color:var(--warn)}.o.ready{border-color:var(--ok)}
 .o h3{margin:0 0 4px;display:flex;justify-content:space-between;font-size:1.5em}.o small{color:var(--m)}
 .o ul{padding-left:18px;margin:8px 0}.o .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.box{background:#fff;border-radius:14px;padding:16px;margin-bottom:14px}
-.stat{display:flex;gap:12px;flex-wrap:wrap}.stat div{flex:1;min-width:140px;background:var(--bg);border-radius:12px;padding:12px}.stat b{font-size:1.7em;display:block}
-label{display:block;font-weight:700;margin:10px 0 4px}input[type=text],input[type=number],input[type=password],textarea,select{width:100%;padding:10px;border:2px solid var(--l);border-radius:10px;font:inherit}
-.row{display:flex;gap:14px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}
-.chk{display:flex;align-items:center;gap:8px;font-weight:600;margin:6px 0}.chk input{width:20px;height:20px}
+.box{background:var(--card);border-radius:14px;padding:16px;margin-bottom:14px;border:1px solid var(--l)}
+.stat{display:flex;gap:12px;flex-wrap:wrap}.stat div{flex:1;min-width:140px;background:var(--alt);border-radius:12px;padding:12px}.stat b{font-size:1.7em;display:block}
+label{display:block;font-weight:700;margin:10px 0 4px}input[type=text],input[type=number],input[type=password],input[type=time],textarea,select{width:100%;padding:10px;border:2px solid var(--l);border-radius:10px;font:inherit;background:var(--card);color:var(--ink)}
+input[type=color]{width:56px;height:42px;padding:2px;border:2px solid var(--l);border-radius:10px;background:var(--card);vertical-align:middle}
+.row{display:flex;gap:14px;flex-wrap:wrap}.row>*{flex:1;min-width:min(200px,100%)}
+.chk{display:flex;align-items:center;gap:8px;font-weight:600;margin:6px 0}.chk input{width:20px;height:20px;flex:0 0 auto}
 .plist{max-height:260px;overflow:auto;border:2px solid var(--l);border-radius:10px;padding:6px}
-.plist div{display:flex;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--bg)}.plist span{flex:1}
+.plist div{display:flex;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px solid var(--l)}.plist span{flex:1}
 .plist label{display:inline-flex;margin:0;font-weight:500;gap:4px;align-items:center}
 .hide{display:none}.empty{text-align:center;color:var(--m);padding:40px}
-pre{white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:8px;font-size:.85em}
+pre{white-space:pre-wrap;background:var(--alt);padding:8px;border-radius:8px;font-size:.85em}
+.hot{display:inline-block;background:#fff7ed;color:#c2410c;border:1px solid #fdba74;border-radius:999px;padding:3px 10px;font-weight:700;margin:3px 4px 3px 0}
+html.dark .hot{background:#431407;color:#fdba74;border-color:#9a3412}
+.muted{color:var(--m)}
 /* License lock (Self-Order Kiosk subscription): while locked, only the lock box is shown */
 #lock{display:none}.locked #lock{display:block}
 .locked #v1,.locked #v2,.locked #v3,.locked #t1,.locked #t2,.locked #t3{display:none!important}
-#grace{padding:10px 14px;background:#fff3cd;border-bottom:1px solid #f0d98a;font-weight:600}
+#grace{padding:10px 14px;background:var(--graceb);border-bottom:1px solid var(--graceln);font-weight:600}
 a.btnlink{display:inline-block;text-decoration:none;border-radius:10px;padding:10px 14px;background:var(--b);color:#fff;font-weight:700}
 </style></head><body>
-<div id="login" style="max-width:340px;margin:12vh auto" class="box"><h2>Kiosk Counter</h2><label>Username</label><input type="text" id="u" autocapitalize="off"><label>Password</label><input type="password" id="p"><p id="lm" style="color:#d33"></p><button id="lb" style="width:100%">Login</button></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="omni-brand-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#1d8bf0"/></linearGradient></defs></svg>
+<div id="login" style="max-width:340px;margin:12vh auto" class="box"><h2>Kiosk Counter</h2><label>Username</label><input type="text" id="u" autocapitalize="off"><label>Password</label><input type="password" id="p"><p id="lm" style="color:var(--bad)"></p><button id="lb" style="width:100%">Login</button></div>
 <div id="app" class="hide">
-<header><b>🛎 Kiosk Counter</b><button id="t1" class="on">Orders</button><button id="t2" class="g">Summary</button><button id="t3" class="g">Settings</button><span style="flex:1"></span><span id="st" style="color:#7a736c"></span><button class="g" id="lo">Logout</button></header>
+<header><b><svg class="mk" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg>Kiosk Counter</b><button id="t1" class="on">Orders</button><button id="t2" class="g">Summary</button><button id="t3" class="g">Settings</button><span style="flex:1"></span><span id="st" style="color:var(--m)"></span><button class="g" id="th" title="Day / Dark (default: sumusunod sa OmniPOS)">🌙</button><button class="g" id="lo">Logout</button></header>
 <div id="grace" class="hide"></div>
 <main>
  <section id="lock"></section>
  <section id="v1"><div class="cards" id="cards"></div></section>
- <section id="v2" class="hide"><div class="box"><div class="stat" id="stat"></div></div><div class="box"><h3 id="toph">Top items ngayon</h3><div id="top"></div></div></section>
+ <section id="v2" class="hide"><div class="box"><div class="stat" id="stat"></div></div><div class="box"><h3 id="toph">Top items ngayon</h3><div id="top"></div></div><div class="box" id="hotbox"><h3>🔥 Best sellers (huling 30 araw)</h3><div id="hotl"></div></div></section>
  <section id="v3" class="hide"></section>
 </main></div>
 <script>
@@ -58,7 +68,16 @@ const FIT={
 };
 let BIZC='general';
 const L=()=>LBL[BIZC==='service'?'service':'def'];
-const apptOf=o=>{const m=/Appt:(\d{4}-\d\d-\d\d)(?: (\d\d:\d\d))?/.exec((o&&o.note)||'');return m?{d:m[1],t:m[2]||'',k:m[1]+' '+(m[2]||'00:00')}:null};
+const apptOf=o=>{if(o&&o.appt&&o.appt.date)return {d:o.appt.date,t:o.appt.time||'',k:o.appt.date+' '+(o.appt.time||'00:00')};const m=/Appt:(\d{4}-\d\d-\d\d)(?: (\d\d:\d\d))?/.exec((o&&o.note)||'');return m?{d:m[1],t:m[2]||'',k:m[1]+' '+(m[2]||'00:00')}:null};
+const cleanNote=o=>String((o&&o.note)||'').replace(/Appt:\d{4}-\d\d-\d\d(?: \d\d:\d\d)?/,'').split('|').map(x=>x.trim()).filter(Boolean).join(' | ');
+const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const t12=hm=>{if(!hm)return '';const a=hm.split(':'),h=+a[0]||0;return ((h%12)||12)+':'+(a[1]||'00')+' '+(h<12?'AM':'PM')};
+function apptLabel(a){const n=new Date(),tm=new Date(n.getFullYear(),n.getMonth(),n.getDate()+1);const day=a.d===ymd(n)?'Ngayon':a.d===ymd(tm)?'Bukas':new Date(a.d+'T12:00:00').toLocaleDateString('fil-PH',{weekday:'short',month:'short',day:'numeric'});return day+(a.t?' · '+t12(a.t):'')}
+/* Theme: sumusunod sa OmniPOS (localStorage 'omnipos_theme': 'day' = day mode, iba pa = dark). Ang 🌙/☀️ button ay pansamantalang override sa counter na ito. */
+function isDarkNow(){try{const o=localStorage.getItem('kc_theme');if(o==='day'||o==='dark')return o==='dark';let t=localStorage.getItem('omnipos_theme');if(!t)t=localStorage.getItem('omnipos_darkmode')==='true'?'dark':'day';return t!=='day'}catch(e){return false}}
+function applyTheme(){document.documentElement.classList.toggle('dark',isDarkNow());const b=document.getElementById('th');if(b)b.textContent=isDarkNow()?'☀️':'🌙'}
+document.getElementById('th').onclick=()=>{try{localStorage.setItem('kc_theme',isDarkNow()?'day':'dark')}catch(e){}applyTheme()};
+addEventListener('storage',e=>{if(e.key==='omnipos_theme'||e.key==='omnipos_darkmode'){try{localStorage.removeItem('kc_theme')}catch(x){}applyTheme()}});applyTheme();
 let TOKEN=sessionStorage.getItem('kc_tok')||'',ME=null,tab=1,orders=[],lastIds='',CFGX=null,PRODS=[],LOCKED=false,LIC=null;
 const peso=n=>'₱'+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2});
 async function api(m,p,b){const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN},body:b?JSON.stringify(b):undefined});if(r.status===401){logout();throw new Error('401')}
@@ -69,10 +88,10 @@ const isAdminUser=()=>!!ME&&String(ME.role||'').toLowerCase()==='admin';
 function renderLock(j){
  j=j||LIC||{};const pr=j.subscriptionPrice;
  $('#lock').innerHTML=`<div class="box" style="max-width:640px;margin:6vh auto;text-align:center"><div style="font-size:3em">🔒</div><h2 style="margin:6px 0">Self-Order Kiosk is not activated</h2>
-  <p style="color:#7a736c">${j.hookOutdated?esc(j.message||''):'This store has no active Self-Order Kiosk subscription (or it has expired). The kiosk app and this Counter screen are paused and no new orders are accepted. Your existing orders and settings are kept and come back after activation.'}</p>
+  <p style="color:var(--m)">${j.hookOutdated?esc(j.message||''):'This store has no active Self-Order Kiosk subscription (or it has expired). The kiosk app and this Counter screen are paused and no new orders are accepted. Your existing orders and settings are kept and come back after activation.'}</p>
   ${pr&&typeof pr.monthly==='number'?`<p><b>Plans:</b> ${peso(pr.monthly).replace('.00','')} / month or ${peso(pr.yearly).replace('.00','')} / year</p>`:''}
   <p>${isAdminUser()?'Open OMNIPOS and click <b>Kiosk Counter</b> (🔒) in the sidebar to see the plans and subscribe.':'Please ask the store owner/admin to activate it in OMNIPOS.'}</p>
-  <p><a class="btnlink" href="/" target="_blank" rel="noopener">Open OMNIPOS</a> <button class="g" id="lchk">Check again</button></p><div id="lmsg" style="color:#7a736c;min-height:1.4em"></div></div>`;
+  <p><a class="btnlink" href="/" target="_blank" rel="noopener">Open OMNIPOS</a> <button class="g" id="lchk">Check again</button></p><div id="lmsg" style="color:var(--m);min-height:1.4em"></div></div>`;
  $('#lchk').onclick=async()=>{$('#lmsg').textContent='Checking…';await checkLicense();if(LOCKED)$('#lmsg').textContent='Still not activated.'};
 }
 function showLock(j){LOCKED=true;$('#app').classList.add('locked');$('#grace').classList.add('hide');renderLock(j)}
@@ -107,15 +126,16 @@ function renderOrders(){
  const l=L();
  $('#cards').innerHTML=orders.length?orders.map(o=>`<div class="o ${o.status}"><h3><span>#${esc(o.orderNo)}</span><span>${peso(o.total)}</span></h3>
   <small>${esc(o.orderType)}${o.customerName?' · '+esc(o.customerName):''}${o.table?' · Table '+esc(o.table):''}${o.phone?' · '+esc(o.phone):''} · ${new Date(o.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · <b>${esc(o.status)}</b></small>
-  ${apptOf(o)?`<div style="margin:6px 0;font-weight:700;color:#b45309">📅 ${esc(apptOf(o).d)}${apptOf(o).t?' · '+esc(apptOf(o).t):''}</div>`:''}
+  ${apptOf(o)?`<div style="margin:6px 0;font-weight:700;color:var(--warnt)">📅 ${esc(apptLabel(apptOf(o)))}</div>`:''}
   <ul>${o.items.map(i=>`<li><b>${i.qty}×</b> ${esc(i.name)}${i.unit?' ('+esc(i.unit)+')':''}${i.options.length?' <small>['+esc(i.options.map(x=>x.name).join(', '))+']</small>':''}${i.note?' <small>📝 '+esc(i.note)+'</small>':''}</li>`).join('')}</ul>
-  ${o.note?`<div>📝 ${esc(o.note)}</div>`:''}
+  ${cleanNote(o)?`<div>📝 ${esc(cleanNote(o))}</div>`:''}
   <div class="acts">${o.status==='new'?`<button data-a="preparing" data-id="${o.id}">${l.prep}</button>`:''}${o.status!=='ready'?`<button class="k" data-a="ready" data-id="${o.id}">${l.ready}</button>`:''}
   <button class="g" data-a="done" data-id="${o.id}">${l.done}</button><button class="r" data-a="cancelled" data-id="${o.id}">✖</button></div></div>`).join(''):`<div class="empty">${l.empty}</div>`;
  document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{if(b.dataset.a==='cancelled'&&!confirm('I-cancel ang order?'))return;await api('POST','/api/kiosk/orders/'+b.dataset.id+'/status',{status:b.dataset.a});lastIds='';poll()});
 }
-async function loadSummary(){const j=await api('GET','/api/kiosk/summary');$('#stat').innerHTML=`<div><small>${L().sum}</small><b>${j.orders}</b></div><div><small>Benta (kiosk)</small><b>${peso(j.sales)}</b></div><div><small>Bukas pa</small><b>${j.open}</b></div><div><small>Cancelled</small><b>${j.cancelled}</b></div>`;
- $('#top').innerHTML=j.top.length?j.top.map(t=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee"><span>${esc(t.name)}</span><span>${t.qty} pcs · ${peso(t.sales)}</span></div>`).join(''):`<div class="empty">${L().none}</div>`;$('#toph').textContent=L().top}
+async function loadSummary(){const j=await api('GET','/api/kiosk/summary');$('#stat').innerHTML=`<div><small>${L().sum}</small><b>${j.orders}</b></div><div><small>Benta (kiosk)</small><b>${peso(j.sales)}</b></div><div><small>Bukas pa</small><b>${j.open}</b></div><div><small>Cancelled</small><b>${j.cancelled}</b></div>${j.wait?`<div><small>⏱ Hintay ngayon</small><b>~${j.wait.minutes} min</b></div>`:''}`;
+ $('#hotl').innerHTML=(j.hot&&j.hot.length)?j.hot.map(h=>`<span class="hot">🔥 ${esc(h.name)}</span>`).join(''):`<div class="muted">Wala pa. Lalabas dito ang mga item na may hindi bababa sa 3 benta sa kiosk sa nakaraang 30 araw.</div>`;
+ $('#top').innerHTML=j.top.length?j.top.map(t=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--l)"><span>${esc(t.name)}</span><span>${t.qty} pcs · ${peso(t.sales)}</span></div>`).join(''):`<div class="empty">${L().none}</div>`;$('#toph').textContent=L().top}
 function optsToText(opts){return Object.keys(opts||{}).map(code=>{const p=PRODS.find(x=>String(x.code)===code);return '# '+code+' '+(p?p.name:'')+'\n'+opts[code].map(g=>`${g.name}${g.required?'*':''}${g.type==='multi'?' (multi)':''}: ${g.choices.map(c=>c.name+'='+c.price).join(', ')}`).join('\n')}).join('\n\n')}
 function textToOpts(txt){const out={};let cur=null;txt.split('\n').forEach(line=>{line=line.trim();if(!line)return;if(line[0]==='#'){cur=line.slice(1).trim().split(/\s+/)[0];out[cur]=[];return}if(!cur)return;
  const i=line.indexOf(':');if(i<0)return;let head=line.slice(0,i).trim(),type='single',req=false;if(/\(multi\)/i.test(head)){type='multi';head=head.replace(/\(multi\)/i,'').trim()}if(head.endsWith('*')){req=true;head=head.slice(0,-1).trim()}
@@ -125,30 +145,39 @@ async function loadSettings(){
  CFGX=c.config;PRODS=(Array.isArray(p)?p:[]).filter(x=>x&&x.code!=null);
  const admin=ME&&String(ME.role).toLowerCase()==='admin';const m=CFGX.modes;
  const flag=(k,l)=>`<label class="chk"><input type="checkbox" id="c_${k}" ${CFGX[k]?'checked':''}> ${l}</label>`;
- const pl=(k)=>PRODS.map(x=>`<div><span>${esc(x.name)} <small style="color:#7a736c">${esc(x.code)}</small></span><label><input type="checkbox" data-k="${k}" value="${esc(x.code)}" ${(CFGX[k]||[]).includes(String(x.code))?'checked':''}> </label></div>`).join('');
- $('#v3').innerHTML=(admin?'':'<div class="box" style="background:#fff3cd">Admin lang ang makaka-save ng settings.</div>')+`
+ const pl=(k)=>PRODS.map(x=>`<div><span>${esc(x.name)} <small style="color:var(--m)">${esc(x.code)}</small></span><label><input type="checkbox" data-k="${k}" value="${esc(x.code)}" ${(CFGX[k]||[]).includes(String(x.code))?'checked':''}> </label></div>`).join('');
+ $('#v3').innerHTML=(admin?'':'<div class="box" style="background:var(--graceb)">Admin lang ang makaka-save ng settings.</div>')+`
  <div class="box"><h3>Negosyo</h3><div class="row"><div><label>Pangalan ng store</label><input type="text" id="c_storeName" value="${esc(CFGX.storeName)}"></div><div><label>Tagline</label><input type="text" id="c_tagline" value="${esc(CFGX.tagline)}"></div></div>
- <div class="row"><div><label>Uri ng negosyo (nagtatakda ng buttons, order types at checkout rules)</label><select id="c_businessType" ${DEVPIN?'':'disabled'}>${[['general','General / Kahit ano'],['restaurant','Restaurant / Kainan (Dine-in, Table)'],['minimart','Mini-mart / Grocery'],['sari','Sari-sari store'],['service','Serbisyo (Parlor / Repair / Laundry)'],['pharmacy','Parmasya'],['hardware','Hardware / Wholesale']].map(x=>`<option value="${x[0]}" ${CFGX.businessType===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select> <button type="button" id="dvu" style="margin-top:6px">${DEVPIN?'🔓 Naka-unlock (Developer)':'🔒 I-unlock (Developer PIN)'}</button><div style="color:#7a736c;font-size:.85em">Developer lang ang makakapagpalit ng uri ng negosyo.</div><div id="fit" style="margin-top:6px;font-size:.9em;font-weight:600">${esc(FIT[CFGX.businessType]||FIT.general)}</div></div>
- <div><label>Kulay ng brand</label><input type="text" id="c_brandColor" value="${esc(CFGX.brandColor)}"></div><div><label>Wika</label><select id="c_language"><option value="tl" ${CFGX.language==='tl'?'selected':''}>Tagalog</option><option value="en" ${CFGX.language==='en'?'selected':''}>English</option></select></div></div></div>
+ <div class="row"><div><label>Uri ng negosyo (nagtatakda ng buttons, order types at checkout rules)</label><select id="c_businessType" ${DEVPIN?'':'disabled'}>${[['general','General / Kahit ano'],['restaurant','Restaurant / Kainan (Dine-in, Table)'],['minimart','Mini-mart / Grocery'],['sari','Sari-sari store'],['service','Serbisyo (Parlor / Repair / Laundry)'],['pharmacy','Parmasya'],['hardware','Hardware / Wholesale']].map(x=>`<option value="${x[0]}" ${CFGX.businessType===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select> <button type="button" id="dvu" style="margin-top:6px">${DEVPIN?'🔓 Naka-unlock (Developer)':'🔒 I-unlock (Developer PIN)'}</button><div style="color:var(--m);font-size:.85em">Developer lang ang makakapagpalit ng uri ng negosyo.</div><div id="fit" style="margin-top:6px;font-size:.9em;font-weight:600">${esc(FIT[CFGX.businessType]||FIT.general)}</div></div>
+ <div><label>Kulay ng kiosk</label><select id="c_brandMode"><option value="omni" ${CFGX.brandColor?'':'selected'}>Kulay ng OmniPOS (day / dark)</option><option value="custom" ${CFGX.brandColor?'selected':''}>Sariling kulay</option></select><div style="margin-top:6px"><input type="color" id="c_brandColor" value="${esc(CFGX.brandColor||'#2563eb')}" ${CFGX.brandColor?'':'disabled'}></div></div><div><label>Wika</label><select id="c_language"><option value="tl" ${CFGX.language==='tl'?'selected':''}>Tagalog</option><option value="en" ${CFGX.language==='en'?'selected':''}>English</option></select></div></div></div>
  <div class="box"><h3>Mga mode sa kiosk</h3><label class="chk"><input type="checkbox" id="m_order" ${m.order?'checked':''}> Self-order</label><label class="chk"><input type="checkbox" id="m_priceCheck" ${m.priceCheck?'checked':''}> Price check / scan</label><label class="chk"><input type="checkbox" id="m_queueBoard" ${m.queueBoard?'checked':''}> Order status board (para sa TV)</label>
- <p style="color:#7a736c;margin:4px 0 0">Sari-sari/mini-mart na ayaw ng self-order? I-off ang Self-order at i-on ang Price check.</p></div>
+ <p style="color:var(--m);margin:4px 0 0">Sari-sari/mini-mart na ayaw ng self-order? I-off ang Self-order at i-on ang Price check.</p></div>
+ <div class="box" id="bx_wait"><h3>🔥 Best sellers at ⏱ Tinatayang hintay</h3>${flag('bestSellers','Ipakita ang 🔥 Patok (best seller) na tag at kategorya sa kiosk')}${flag('showWait','Ipakita ang tinatayang hintay (home, cart at order number)')}
+ <div class="row"><div><label>Default na minuto bawat order</label><input type="number" id="c_prepMinutes" min="1" max="120" value="${CFGX.prepMinutes}"></div><div><label>Ilang order ang sabay na naihahanda</label><input type="number" id="c_stations" min="1" max="20" value="${CFGX.stations}"></div></div>
+ <p class="muted" style="margin:6px 0 0">Ang best seller ay galing sa benta ng kiosk sa nakaraang 30 araw (hindi bababa sa 3 piraso). Ang hintay ay (mga order na hindi pa Ready + 1) × bilis ÷ sabay na naihahanda. Kapag may 3+ natapos na order, ang aktwal na bilis (Preparing → Ready) na ang gagamitin sa halip na ang default.</p></div>
+ <div class="box" id="bx_slots"><h3>📅 Booking slots (serbisyo / appointment)</h3>
+ <div class="row"><div><label>Bukas (oras)</label><input type="time" id="c_slotOpen" value="${esc(CFGX.slotOpen)}"></div><div><label>Sara (oras)</label><input type="time" id="c_slotClose" value="${esc(CFGX.slotClose)}"></div><div><label>Haba ng slot (minuto)</label><input type="number" id="c_slotMinutes" min="10" max="240" value="${CFGX.slotMinutes}"></div></div>
+ <div class="row"><div><label>Ilang booking bawat slot</label><input type="number" id="c_slotCapacity" min="1" max="50" value="${CFGX.slotCapacity}"></div><div><label>Ilang araw ang pwedeng i-book (kasama ngayon)</label><input type="number" id="c_slotDays" min="1" max="60" value="${CFGX.slotDays}"></div><div><label>Minimum na minuto bago ang slot</label><input type="number" id="c_slotLead" min="0" max="600" value="${CFGX.slotLead}"></div></div>
+ <p class="muted" style="margin:6px 0 0">Ang mga bakanteng oras ay kinukuwenta ng server. Ang bukas na booking lang (New / Preparing / Ready) ang bumibilang; kapag Done o Cancelled, bakante ulit ang slot.</p></div>
  <div class="box"><h3>Order</h3><label>Order types (hiwalay ng kuwit)</label><input type="text" id="c_orderTypes" value="${esc(CFGX.orderTypes.join(', '))}">
  ${flag('askName','Hingin ang pangalan')}${flag('askPhone','Hingin ang cellphone no.')}${CFGX.businessType==='restaurant'?flag('askTable','Hingin ang table no.'):''}${flag('orderNote','Payagan ang note sa order/item')}${flag('showStock','Ipakita ang natitirang stock')}${flag('hideOutOfStock','Itago ang ubos na item')}${flag('upsell','Mag-alok ng "Dagdag pa?" bago mag-checkout')}
  <div class="row"><div><label>Max dami bawat line</label><input type="number" id="c_maxQtyPerLine" value="${CFGX.maxQtyPerLine}"></div><div><label>Idle reset (segundo)</label><input type="number" id="c_idleSeconds" value="${CFGX.idleSeconds}"></div></div></div>
  <div class="box"><h3>Mga item</h3><div class="row"><div><b>Itago sa kiosk</b><div class="plist">${pl('hiddenCodes')}</div></div><div><b>⭐ Paborito (featured)</b><div class="plist">${pl('featuredCodes')}</div></div><div><b>🎁 Upsell (alok bago checkout)</b><div class="plist">${pl('upsellCodes')}</div></div></div></div>
- <div class="box"><h3>Options / Add-ons bawat item</h3><p style="color:#7a736c;margin-top:0">Isang <code># CODE</code> bawat item, tapos isang linya bawat grupo. <code>*</code> = kailangan pumili, <code>(multi)</code> = pwedeng higit isa. Format ng choice: <code>Pangalan=dagdag-presyo</code>.</p>
+ <div class="box"><h3>Options / Add-ons bawat item</h3><p style="color:var(--m);margin-top:0">Isang <code># CODE</code> bawat item, tapos isang linya bawat grupo. <code>*</code> = kailangan pumili, <code>(multi)</code> = pwedeng higit isa. Format ng choice: <code>Pangalan=dagdag-presyo</code>.</p>
  <pre># 1001 Burger\nSize*: Regular=0, Large=20\nAdd-ons (multi): Cheese=10, Egg=15</pre><textarea id="c_opts" rows="10">${esc(optsToText(CFGX.productOptions))}</textarea></div>
  <button id="sv" ${admin?'':'disabled'}>💾 I-save ang settings</button> <span id="svm"></span>`;
  $('#sv').onclick=save;
+ const vis=bt=>{$('#bx_wait').style.display=bt==='service'?'none':'';$('#bx_slots').style.display=(bt==='service'||bt==='general')?'':'none'};vis(CFGX.businessType);
+ $('#c_brandMode').onchange=e=>{$('#c_brandColor').disabled=e.target.value!=='custom'};
  $('#dvu').onclick=async()=>{if(DEVPIN)return;const pin=prompt('Developer PIN');if(!pin)return;const r=await api('POST','/api/kiosk/dev-verify',{devPin:pin});if(r.success){DEVPIN=pin;$('#c_businessType').disabled=false;$('#dvu').textContent='🔓 Naka-unlock (Developer)'}else alert(r.message||'Maling Developer PIN')};
  const DEFT={restaurant:'Dine-in, Take-out',minimart:'Pick-up',sari:'Walk-in',service:'Walk-in',pharmacy:'Pick-up',hardware:'Pick-up, Delivery',general:'Walk-in'};
- $('#c_businessType').onchange=e=>{$('#fit').textContent=FIT[e.target.value]||FIT.general;$('#c_orderTypes').value=DEFT[e.target.value]||'Walk-in';const MD={restaurant:[1,0,1],minimart:[1,1,0],sari:[0,1,0],service:[1,1,1],pharmacy:[1,1,0],hardware:[1,1,0],general:[1,1,1]}[e.target.value]||[1,1,1];['m_order','m_priceCheck','m_queueBoard'].forEach((id,i)=>{$('#'+id).checked=!!MD[i]});const t=$('#c_askTable');if(t&&e.target.value!=='restaurant'){t.checked=false;t.parentNode.style.display='none'}}}
+ $('#c_businessType').onchange=e=>{vis(e.target.value);$('#fit').textContent=FIT[e.target.value]||FIT.general;$('#c_orderTypes').value=DEFT[e.target.value]||'Walk-in';const MD={restaurant:[1,0,1],minimart:[1,1,0],sari:[0,1,0],service:[1,1,1],pharmacy:[1,1,0],hardware:[1,1,0],general:[1,1,1]}[e.target.value]||[1,1,1];['m_order','m_priceCheck','m_queueBoard'].forEach((id,i)=>{$('#'+id).checked=!!MD[i]});const t=$('#c_askTable');if(t&&e.target.value!=='restaurant'){t.checked=false;t.parentNode.style.display='none'}}}
 async function save(){
  const g=id=>$('#'+id);const lst=k=>[...document.querySelectorAll(`[data-k="${k}"]:checked`)].map(x=>x.value);
- const cfg={devPin:undefined,businessType:g('c_businessType').value,storeName:g('c_storeName').value,tagline:g('c_tagline').value,brandColor:g('c_brandColor').value,language:g('c_language').value,
+ const cfg={devPin:undefined,businessType:g('c_businessType').value,storeName:g('c_storeName').value,tagline:g('c_tagline').value,brandColor:g('c_brandMode').value==='custom'?g('c_brandColor').value:'',language:g('c_language').value,
   modes:{order:g('m_order').checked,priceCheck:g('m_priceCheck').checked,queueBoard:g('m_queueBoard').checked},orderTypes:g('c_orderTypes').value.split(',').map(s=>s.trim()).filter(Boolean),
-  maxQtyPerLine:g('c_maxQtyPerLine').value,idleSeconds:g('c_idleSeconds').value,hiddenCodes:lst('hiddenCodes'),featuredCodes:lst('featuredCodes'),upsellCodes:lst('upsellCodes'),productOptions:textToOpts(g('c_opts').value)};
- ['askName','askPhone','askTable','orderNote','showStock','hideOutOfStock','upsell'].forEach(k=>{const e=g('c_'+k);cfg[k]=e?e.checked:false});
+  maxQtyPerLine:g('c_maxQtyPerLine').value,idleSeconds:g('c_idleSeconds').value,prepMinutes:g('c_prepMinutes').value,stations:g('c_stations').value,slotOpen:g('c_slotOpen').value,slotClose:g('c_slotClose').value,slotMinutes:g('c_slotMinutes').value,slotCapacity:g('c_slotCapacity').value,slotDays:g('c_slotDays').value,slotLead:g('c_slotLead').value,hiddenCodes:lst('hiddenCodes'),featuredCodes:lst('featuredCodes'),upsellCodes:lst('upsellCodes'),productOptions:textToOpts(g('c_opts').value)};
+ ['askName','askPhone','askTable','orderNote','showStock','hideOutOfStock','upsell','bestSellers','showWait'].forEach(k=>{const e=g('c_'+k);cfg[k]=e?e.checked:false});
  const r=await api('PUT','/api/kiosk/config',{config:cfg,devPin:DEVPIN||undefined});if(r.success&&r.config){BIZC=r.config.businessType||'general';applyLabels()}$('#svm').textContent=r.success?'✓ Na-save. Mag-a-update ang kiosk sa susunod na refresh (≤1 min).':'✗ '+(r.message||'Error');if(r.success){DEVPIN='';g('c_businessType').disabled=true;g('dvu').textContent='🔒 I-unlock (Developer PIN)'}}
 function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');if(!ME)ME={role:''};lastIds='';checkLicense().then(()=>{loadBiz();poll()})}
 setInterval(poll,3000);

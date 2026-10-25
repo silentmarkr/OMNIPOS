@@ -5,40 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>OMNIKiosk</title>
 <style>
-:root{--brand:#e4572e;--bg:#f6f3ef;--card:#fff;--ink:#1d1b19;--mute:#7a736c;--line:#e7e1da;--ok:#1f9d55;--bad:#d33;--fs:1;--r:18px}
+:root{--brand:#2563eb;--brandh:#1d4ed8;--bg:#f4f7fb;--card:#ffffff;--ink:#1e293b;--mute:#64748b;--line:#e2e8f0;--ok:#16a34a;--bad:#dc2626;--warn:#b45309;--soft:#eff6ff;--alt:#eef2f7;--navy:#0f172a;--fs:1;--r:18px;--backdrop:radial-gradient(circle at 15% 20%,rgba(56,189,248,.07),transparent 40%),radial-gradient(circle at 85% 80%,rgba(168,85,247,.06),transparent 42%),#f4f7fb}
+/* Kulay ng OmniPOS: day = #f4f7fb / #2563eb, dark = #121218 / #7c5cff (parehong values sa style.css ng OmniPOS) */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:calc(16px*var(--fs))}
 input,textarea{-webkit-user-select:text;user-select:text;font:inherit}
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .hide{display:none!important}
 #app{height:100%;display:flex;flex-direction:column}
-.btn{min-height:56px;padding:0 24px;border-radius:14px;background:var(--brand);color:#fff;font-weight:700;font-size:1.1em;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+button{max-width:100%;overflow-wrap:anywhere}
+/* Ang mga button ay pwedeng mag-wrap sa 2-3 linya (mahaba ang Tagalog) at hindi lalampas sa lapad ng screen */
+.btn{min-height:56px;padding:10px 24px;border-radius:14px;background:var(--brand);color:#fff;font-weight:700;font-size:1.1em;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:normal;text-align:center;line-height:1.2;min-width:0;max-width:100%}
 .btn:active{transform:scale(.97);filter:brightness(.92)}
-.btn.ghost{background:#fff;color:var(--ink);border:2px solid var(--line)}
-.btn.dark{background:#2b2724}
-.btn.ok{background:var(--ok)}
+.btn.ghost{background:var(--card);color:var(--ink);border:2px solid var(--line)}
+.btn.dark{background:var(--navy);color:#fff}
+.btn.ok{background:var(--ok);color:#fff}
 .btn[disabled]{opacity:.4;pointer-events:none}
-.btn.big{min-height:84px;font-size:1.5em;border-radius:22px;padding:0 40px}
+.btn.big{min-height:84px;font-size:1.5em;border-radius:22px;padding:12px 32px}
 .screen{flex:1;min-height:0;display:flex;flex-direction:column}
 /* top bar */
 .bar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line)}
-.bar .logo{font-weight:800;font-size:1.3em;color:var(--brand);flex:0 0 auto}
+.bar .logo{font-weight:800;font-size:1.3em;color:var(--brand);flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.mk{width:1.25em;height:1.25em;flex:0 0 auto;color:var(--brand)}
 .bar .sp{flex:1}
-.search{flex:1 1 150px;min-width:0;max-width:520px;color:var(--ink);height:48px;border:2px solid var(--line);border-radius:24px;padding:0 18px;background:#fff}
-.chip{height:44px;padding:0 16px;border-radius:22px;background:#fff;border:2px solid var(--line);font-weight:600;display:inline-flex;align-items:center}
+.search{flex:1 1 150px;min-width:0;max-width:520px;color:var(--ink);height:48px;border:2px solid var(--line);border-radius:24px;padding:0 18px;background:var(--card);color:var(--ink)}
+.chip{min-height:44px;padding:6px 16px;border-radius:22px;background:var(--card);color:var(--ink);border:2px solid var(--line);font-weight:600;display:inline-flex;align-items:center;justify-content:center;text-align:center;line-height:1.15;white-space:normal;min-width:0}
 #offline{background:#b45309;color:#fff;text-align:center;padding:6px;font-weight:600}
 /* home */
-#home{align-items:center;justify-content:center;text-align:center;padding:24px;gap:22px;background:linear-gradient(160deg,var(--brand),#2b2724)}
-#home h1{margin:0;color:#fff;font-size:calc(3em);line-height:1.1}
-#home p{margin:0;color:#ffffffcc;font-size:1.4em}
-#home .modes{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-top:12px}
-#home .modes .btn{background:#fff;color:#1d1b19;min-width:min(520px,86%)}
-html.dark #home .modes .btn:not(.primary){background:#fff;color:#1d1b19}
-#home .modes{flex-direction:column;align-items:center;width:100%}
+#home{align-items:center;justify-content:flex-start;text-align:center;padding:68px 24px 24px;gap:22px;background:var(--backdrop);overflow-y:auto}
+#home::before,#home::after{content:'';margin:auto}
+#home h1{margin:0;color:var(--ink);font-size:calc(3em);line-height:1.1;max-width:100%;overflow-wrap:anywhere}
+#home p{margin:0;color:var(--mute);font-size:1.4em;max-width:100%}
+#home .modes{display:flex;gap:20px;flex-direction:column;align-items:center;width:100%;margin-top:12px}
+#home .modes .btn{background:var(--card);color:var(--ink);border:2px solid var(--line);width:min(520px,92%);box-shadow:0 1px 3px rgba(15,23,42,.08)}
+#home .modes .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 10px 24px -10px var(--brand)}
 #home .tools{position:absolute;right:16px;top:14px;display:flex;gap:8px;z-index:2}#home .tools .lang{position:static;min-width:56px;justify-content:center}
-#home .modes .btn.primary{background:var(--brand);color:#fff!important;box-shadow:0 0 0 4px #fff}
-#feat{display:flex;gap:14px;overflow:hidden;max-width:100%;margin-top:6px}
-#feat .f{background:#ffffff22;color:#fff;border-radius:16px;padding:10px 16px;font-weight:600;white-space:nowrap}
+#feat{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:100%;max-height:7.4em;overflow:hidden;margin-top:6px}
+#feat .f,.banner{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:16px;padding:10px 16px;font-weight:600;max-width:100%;overflow-wrap:anywhere}
+.banner{background:var(--soft);color:var(--brand);font-weight:700;max-width:90%}
+.waitchip{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--soft);color:var(--brand);border-radius:999px;padding:8px 16px;font-weight:800;max-width:100%;text-align:center;line-height:1.2;overflow-wrap:anywhere}
+.pw{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--mute);font-weight:700;font-size:.9em}.pw .mk{width:1.5em;height:1.5em}
 #home .tiny{position:absolute;left:0;top:0;width:90px;height:90px}
 /* order */
 #order .body{flex:1;min-height:0;display:flex}
@@ -52,7 +58,9 @@ html.dark #home .modes .btn:not(.primary){background:#fff;color:#1d1b19}
 .p .txt{display:flex;flex-direction:column}
 .p .nm{padding:10px 12px 2px;font-weight:700;line-height:1.2;min-height:2.6em}
 .p .pr{padding:0 12px 12px;color:var(--brand);font-weight:800;font-size:1.15em}
-.p .tag{position:absolute;top:8px;left:8px;background:#fff;border-radius:10px;padding:2px 8px;font-size:.8em;font-weight:700}
+.p .tags{position:absolute;top:8px;left:8px;max-width:calc(100% - 52px);display:flex;flex-direction:column;align-items:flex-start;gap:4px;z-index:1}
+.p .tag{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:2px 8px;font-size:.8em;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag.hot{background:#fff7ed;color:#c2410c;border-color:#fdba74}
 .p .inc{position:absolute;right:8px;top:8px;background:var(--brand);color:#fff;border-radius:12px;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:800;padding:0 8px}
 .p.out{opacity:.5;pointer-events:none}
 .cart{width:340px;flex:0 0 auto;background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column}
@@ -61,13 +69,12 @@ html.dark #home .modes .btn:not(.primary){background:#fff;color:#1d1b19}
 .ln{display:flex;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);align-items:center}
 .ln .i{flex:1;min-width:0}.ln .i b{display:block;line-height:1.2}.ln .i small{color:var(--mute);display:block}
 .qty{display:flex;align-items:center;gap:6px}
-.qty button{width:40px;height:40px;border-radius:12px;background:var(--bg);font-size:1.3em;font-weight:800}
+.qty button{width:40px;height:40px;border-radius:12px;background:var(--alt);color:var(--ink);font-size:1.3em;font-weight:800}
 .qty span{min-width:26px;text-align:center;font-weight:800}
 .empty{color:var(--mute);text-align:center;padding:40px 10px}
 .tot{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
 .tot .row{display:flex;justify-content:space-between;font-weight:800;font-size:1.3em}
-.lang{height:44px;min-width:64px;padding:0 14px;border-radius:22px;background:#fff;border:2px solid var(--line);font-weight:800;display:inline-flex;align-items:center;gap:6px}
-#home .lang{position:absolute;right:16px;top:14px;background:#ffffff26;border-color:#ffffff66;color:#fff}
+.lang{min-height:44px;min-width:64px;padding:4px 14px;border-radius:22px;background:var(--card);color:var(--ink);border:2px solid var(--line);font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:normal;line-height:1.15}
 #home{position:relative}
 .p .add{position:absolute;right:8px;bottom:8px;width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;font-size:1.5em;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px #0003}
 .cart .grab{display:none}
@@ -84,25 +91,24 @@ html.dark #home .modes .btn:not(.primary){background:#fff;color:#1d1b19}
  .p .txt{flex:1;min-width:0;padding-right:48px}.p .add{width:34px;height:34px;bottom:auto;top:50%;margin-top:-17px}
  .cart{width:250px}.cart h3{padding:8px 12px;font-size:1em}.tot{padding:8px 12px;gap:6px}.tot .row{font-size:1.1em}
  #co{min-height:46px!important;font-size:1em!important}
- #home h1{font-size:2em}#home p{font-size:1.1em}#home{gap:12px}.btn.big{min-height:60px;font-size:1.2em;padding:0 26px}
+ #home h1{font-size:2em}#home p{font-size:1.1em}#home{gap:12px}.btn.big{min-height:60px;font-size:1.2em;padding:8px 18px}
  .pcard{padding:12px}.pcard .img{width:110px;height:110px}.pcard .big{font-size:2.4em}
  #done{gap:6px;overflow-y:auto;padding:10px}#done .no{font-size:4em}
  .md{max-height:96%}
 }
-html.dark{--bg:#15130f;--card:#25221e;--ink:#f3efe9;--mute:#a59d93;--line:#3b3631}
-html.dark .opt,html.dark .search,html.dark .chip,html.dark .btn.ghost,html.dark .field input,html.dark .field textarea,html.dark .lang,html.dark .p,html.dark #q .n{background:var(--card);color:var(--ink)}
-html.dark .qty button,html.dark .pin button{background:#352f2a}
+html.dark{--brand:#7c5cff;--brandh:#6a48ff;--bg:#121218;--card:#1c1c24;--ink:#f5f5f7;--mute:#9a9ba8;--line:#262733;--soft:rgba(124,92,255,.16);--alt:#22232d;--navy:#22232d;--warn:#fbbf24;--backdrop:radial-gradient(circle at 15% 20%,rgba(56,189,248,.08),transparent 40%),radial-gradient(circle at 85% 80%,rgba(192,132,252,.07),transparent 42%),#121218;color-scheme:dark}
+html.dark .tag.hot{background:#431407;color:#fdba74;border-color:#9a3412}
 #clk{font-weight:700;opacity:.9}
 .th{width:44px;height:44px;border-radius:10px;background:#eee center/cover;flex:0 0 auto;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}
 .steps{display:flex;gap:6px;margin-bottom:14px}.steps i{flex:1;height:6px;border-radius:3px;background:var(--line)}.steps i.on{background:var(--brand)}
 .err{color:var(--bad);font-weight:700;min-height:1.3em;margin-top:6px}.chk{display:flex;gap:10px;align-items:center;font-weight:600}.chk input{width:26px;height:26px}
 #pager,#stepbar{display:none}
-html.pv #stepbar{display:flex;justify-content:center;gap:6px;padding:8px 10px;background:linear-gradient(90deg,#1f1b16,#3d2b22);color:#fff;font-size:.8em;font-weight:700}
-#stepbar span{display:flex;align-items:center;gap:6px;opacity:.55;padding:4px 10px;border-radius:999px}#stepbar span.on{opacity:1;background:var(--brand)}#stepbar span.dn{opacity:.9}
-#stepbar b{width:20px;height:20px;border-radius:50%;background:#fff;color:#222;display:inline-flex;align-items:center;justify-content:center;font-size:.9em}
+html.pv #stepbar{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;padding:8px 10px;background:var(--card);color:var(--ink);border-bottom:1px solid var(--line);font-size:.8em;font-weight:700}
+#stepbar span{display:flex;align-items:center;gap:6px;opacity:.6;padding:4px 10px;border-radius:999px;min-width:0}#stepbar span.on{opacity:1;background:var(--brand);color:#fff}#stepbar span.dn{opacity:.9}
+#stepbar b{width:20px;height:20px;flex:0 0 auto;border-radius:50%;background:var(--alt);color:var(--ink);display:inline-flex;align-items:center;justify-content:center;font-size:.9em}#stepbar span.on b{background:#fff;color:var(--brand)}
 html.pv .body{flex-direction:column;padding-bottom:84px}
 html.pv .cats{width:auto;display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);padding:8px;gap:8px;flex:0 0 auto}
-html.pv .cat{width:auto;white-space:nowrap;margin:0;padding:12px 20px;border-radius:999px;background:var(--bg);border:2px solid var(--line)}html.pv .cat.on{border-color:var(--brand);background:var(--brand)}
+html.pv .cat{width:auto;white-space:nowrap;flex:0 0 auto;margin:0;padding:12px 20px;border-radius:999px;background:var(--card);color:var(--ink);border:2px solid var(--line)}html.pv .cat.on{color:#fff}html.pv .cat.on{border-color:var(--brand);background:var(--brand)}
 html.pv .grid{grid-template-columns:repeat(2,1fr);grid-auto-rows:1fr;overflow:hidden;gap:12px;padding:12px;align-content:stretch}
 html.pv .p{flex-direction:column;align-items:stretch;min-height:0}
 html.pv .p .img{width:100%;height:auto;aspect-ratio:auto;flex:1 1 auto;min-height:0;font-size:2.6em}
@@ -111,11 +117,12 @@ html.pv #pager{display:flex;align-items:center;justify-content:center;gap:14px;p
 #pager .dots{display:flex;gap:6px}#pager .dots i{width:9px;height:9px;border-radius:50%;background:var(--line)}#pager .dots i.on{background:var(--brand);width:22px;border-radius:5px}#pager .pgn{font-weight:700;color:var(--mute)}
 html.pv .cart{display:none;position:fixed;inset:0;width:auto;z-index:8;border:0}html.pv .cart.open{display:flex}
 html.pv .cart .grab{display:block;padding:16px;font-weight:800;color:var(--brand);background:var(--card);border-bottom:1px solid var(--line)}
-html.pv #mini{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:6;background:#1f1b16;color:#fff;padding:14px 18px calc(14px + env(safe-area-inset-bottom,0px));align-items:center;justify-content:space-between;font-weight:800;font-size:1.05em;border-radius:22px 22px 0 0;box-shadow:0 -6px 18px #0004}
-html.pv #mini::after{content:attr(data-go);background:var(--brand);padding:12px 20px;border-radius:14px}
+html.pv #mini{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--navy);color:#fff;padding:14px 18px calc(14px + env(safe-area-inset-bottom,0px));gap:10px;align-items:center;justify-content:space-between;font-weight:800;font-size:1.05em;border-radius:22px 22px 0 0;box-shadow:0 -6px 18px #0004;max-width:100%}
+html.pv #mini span{min-width:0;overflow-wrap:anywhere}
+html.pv #mini::after{content:attr(data-go);background:var(--brand);padding:10px 16px;border-radius:14px;white-space:normal;text-align:center;line-height:1.2;flex:0 1 auto;max-width:56%;overflow-wrap:anywhere}
 html.pv #home{padding:24px}
 .p .imgw{position:relative;display:flex;flex:1 1 auto;min-height:0}.p .imgw .img{width:100%}
-.p .tag{top:8px;left:8px;max-width:62%;z-index:1}.p .inc{top:8px;right:8px;left:auto;z-index:1}
+.p .inc{top:8px;right:8px;left:auto;z-index:1}
 .p .txt{flex:0 0 auto;padding:0}.p .nm{padding:10px 12px 2px;min-height:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 .p .row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 12px 12px}
 .p .row .pr{padding:0;min-width:0}
@@ -123,27 +130,32 @@ html .p .row .add{position:static;width:44px;height:44px;margin:0;flex:0 0 auto;
 .ln{display:grid;grid-template-columns:48px 1fr auto;gap:6px 10px;align-items:start}
 .th{width:48px;height:48px}.ln .th{grid-row:1/3}.ln .i{grid-column:2;grid-row:1}.ln .x{grid-column:3;grid-row:1;justify-self:end}
 .ln .qty{grid-column:2;grid-row:2}.ln .lt{grid-column:3;grid-row:2;align-self:center;font-weight:800;white-space:nowrap}
-.bar{flex-wrap:nowrap}.bar .search{min-width:0;flex:1}.chip,.btn{white-space:nowrap}
+.bar{flex-wrap:nowrap}.bar .search{min-width:0;flex:1}.bar>.chip,.bar>.lang{flex:0 0 auto;white-space:nowrap}
+@media (max-width:520px){.bar{flex-wrap:wrap}.bar .search,html.pv .bar .search{order:9;flex:1 1 100%;min-width:0}.bar .logo{display:none}}
 html.pv #toast{bottom:auto;top:10px}
+#toast{background:var(--navy);border:1px solid var(--line)}
 html.pv .bar .logo{display:none}
 html.pv .bar{gap:8px;padding:8px 10px}html.pv .bar .search{height:42px}html.pv .bar .chip{padding:0 12px}
-@media (max-height:560px) and (orientation:landscape){.p .imgw{flex:0 0 72px;width:72px;height:72px}.p .imgw .img{height:100%}.p .txt{flex:1;min-width:0;padding:0}.p .nm{padding:6px 8px 0;font-size:.95em}.p .row{padding:2px 8px 8px}.p .row .pr{font-size:1em}html .p .row .add{width:36px;height:36px}.p .tag{top:2px;left:2px;font-size:.65em;padding:1px 5px}.p .inc{top:2px;right:2px;min-width:22px;height:22px;font-size:.8em}.cart{width:276px}.cart .lines{overflow-x:hidden}.qty{gap:4px}.qty button{width:34px;height:34px;font-size:1.1em}.qty span{min-width:22px}.ln{gap:4px 8px;grid-template-columns:44px 1fr auto}.th{width:44px;height:44px}}
+@media (max-height:560px) and (orientation:landscape){.p .imgw{flex:0 0 72px;width:72px;height:72px}.p .imgw .img{height:100%}.p .txt{flex:1;min-width:0;padding:0}.p .nm{padding:6px 8px 0;font-size:.95em}.p .row{padding:2px 8px 8px}.p .row .pr{font-size:1em}html .p .row .add{width:36px;height:36px}.p .tags{top:2px;left:2px}.p .tag{font-size:.65em;padding:1px 5px}.p .inc{top:2px;right:2px;min-width:22px;height:22px;font-size:.8em}.cart{width:276px}.cart .lines{overflow-x:hidden}.qty{gap:4px}.qty button{width:34px;height:34px;font-size:1.1em}.qty span{min-width:22px}.ln{gap:4px 8px;grid-template-columns:44px 1fr auto}.th{width:44px;height:44px}}
 /* modal */
 .ov{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
 .md{background:var(--card);border-radius:24px;width:min(640px,100%);max-height:92%;display:flex;flex-direction:column;overflow:hidden}
-.md header{padding:18px 20px;font-weight:800;font-size:1.3em;border-bottom:1px solid var(--line)}
-.md .c{padding:16px 20px;overflow-y:auto;flex:1}
-.md footer{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:flex-end;align-items:center}
+.md header{padding:18px 20px;font-weight:800;font-size:1.3em;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.md .c{padding:16px 20px;overflow-y:auto;overflow-x:hidden;flex:1}
+.md footer{padding:14px 20px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end;align-items:center}
+.md footer .btn{flex:1 1 140px;padding:10px 16px}.md footer .btn.big{min-height:64px;font-size:1.25em}
 .grp{margin-bottom:18px}.grp h4{margin:0 0 8px}.grp h4 em{color:var(--bad);font-style:normal;font-size:.8em;margin-left:6px}
 .opts{display:flex;flex-wrap:wrap;gap:10px}
-.opt{padding:12px 18px;border-radius:14px;border:2px solid var(--line);font-weight:700;background:#fff}
-.opt.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 12%,#fff);color:var(--brand)}
+.opt{padding:12px 18px;border-radius:14px;border:2px solid var(--line);font-weight:700;background:var(--card);color:var(--ink);white-space:normal;text-align:center;line-height:1.2;min-width:0}
+.opt.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 12%,var(--card));color:var(--brand)}
 .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
 .field label{font-weight:700}
-.field input,.field textarea{border:2px solid var(--line);border-radius:12px;padding:14px;background:#fff}
+.field input,.field textarea{border:2px solid var(--line);border-radius:12px;padding:14px;background:var(--card);color:var(--ink);min-width:0;max-width:100%}
 .seg{display:flex;gap:10px;flex-wrap:wrap}
 /* success */
-#done{align-items:center;justify-content:center;text-align:center;gap:14px;padding:20px}
+#done{align-items:center;justify-content:flex-start;text-align:center;gap:14px;padding:20px;overflow-y:auto}
+#done::before,#done::after{content:'';margin:auto}
+html.pv #done .no{font-size:4.5em}html.pv #done{gap:10px}html.pv #qr canvas,html.pv #qr img{width:116px!important;height:116px!important}
 #done .no{font-size:7em;font-weight:900;color:var(--brand);line-height:1}
 /* price check */
 #pc .body{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;align-items:center;gap:16px}
@@ -164,15 +176,16 @@ html.pv .pcard.det{flex-direction:column;text-align:center;padding:18px}html.pv 
 #q .cols{flex:1;display:flex;gap:0}
 #q .col{flex:1;padding:20px;text-align:center}
 #q .col h2{margin:0 0 16px;font-size:2.2em}
-#q .col.r{background:#e6f6ec}#q .col.p{background:#fff5e6}
+#q .col.r{background:color-mix(in srgb,var(--ok) 12%,var(--bg))}#q .col.p{background:color-mix(in srgb,#eab308 12%,var(--bg))}
 #q .nums{display:flex;flex-wrap:wrap;gap:14px;justify-content:center}
-#q .n{font-size:4em;font-weight:900;background:#fff;border-radius:20px;padding:6px 26px;box-shadow:0 2px 6px #0002}
+#q .n{font-size:4em;font-weight:900;background:var(--card);color:var(--ink);border-radius:20px;padding:6px 26px;box-shadow:0 2px 6px #0002}
+#q .cols{flex-wrap:wrap}#q .col{min-width:min(100%,260px)}#q .wt{text-align:center;padding:10px}
 /* toast / pin / idle */
-#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#222;color:#fff;padding:14px 22px;border-radius:14px;z-index:99;font-weight:600;max-width:90%;text-align:center}
-.pin{display:grid;grid-template-columns:repeat(3,84px);gap:10px;justify-content:center;margin-top:10px}
-.pin button{height:68px;border-radius:16px;background:var(--bg);font-size:1.6em;font-weight:800}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:14px 22px;border-radius:14px;z-index:99;font-weight:600;max-width:90%;text-align:center}
+.pin{display:grid;grid-template-columns:repeat(3,minmax(0,84px));gap:10px;justify-content:center;margin-top:10px}
+.pin button{height:68px;border-radius:16px;background:var(--alt);color:var(--ink);font-size:1.6em;font-weight:800}
 .dots{text-align:center;font-size:2em;letter-spacing:10px;min-height:1.4em}
-.spin{width:44px;height:44px;border:5px solid #ddd;border-top-color:var(--brand);border-radius:50%;animation:s 1s linear infinite;margin:30px auto}
+.spin{width:44px;height:44px;border:5px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:s 1s linear infinite;margin:30px auto}
 @keyframes s{to{transform:rotate(360deg)}}
 .rowx{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 html.pv .bar .lang .ln{display:none}html.pv .bar .lang{min-width:44px;padding:0 12px;justify-content:center}
@@ -180,9 +193,22 @@ html.pv .bar .search{flex:1 1 110px;min-width:110px;font-size:.95em}html.pv .bar
 html.pv .p .row{flex-wrap:wrap;row-gap:2px}html.pv .p .row .pr{font-size:.95em;white-space:nowrap}
 html.pv .p .nm{-webkit-line-clamp:3;font-size:1em}
 html.pv .p .row .add{width:40px;height:40px}
+/* wait estimate + booking slot picker */
+.waitrow{color:var(--brand);background:var(--soft);border-radius:12px;padding:8px 12px;font-weight:700;font-size:.95em;line-height:1.25;overflow-wrap:anywhere}
+.days{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px}
+.day{padding:8px 6px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--ink);text-align:center;line-height:1.2;font-weight:800;min-width:0;white-space:normal}
+.day small{display:block;color:var(--mute);font-weight:600}
+.day.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 12%,var(--card));color:var(--brand)}.day.on small{color:var(--brand)}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:10px}
+.slot{min-height:50px;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--ink);font-weight:800;padding:4px 6px;line-height:1.15;text-align:center;min-width:0;white-space:normal}
+.slot small{display:block;font-size:.72em;color:var(--mute);font-weight:600}
+.slot.on{border-color:var(--brand);background:var(--brand);color:#fff}.slot.on small{color:#ffffffd0}
+.slot[disabled]{opacity:.4;pointer-events:none}.slot[disabled] b{text-decoration:line-through}
+.slotmsg{color:var(--mute);text-align:center;padding:14px 6px;font-weight:600}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="omni-brand-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#1d8bf0"/></linearGradient></defs></svg>
 <div id="app"></div>
 <div id="toast" class="hide"></div>
 <script src="qrcode.min.js"></script>
@@ -194,8 +220,8 @@ const $=(s,r)=> (r||document).querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const NATIVE=window.KioskNative||null;
 const T={
- tl:{start:'Pindutin para mag-order',order:'Mag-order',pc:'Price Check',q:'Order Status',back:'Balik',search:'Hanapin ang item…',all:'Lahat',feat:'Paborito',cart:'Order mo',empty:'Wala pang laman. Pumili ng item!',total:'Kabuuan',checkout:'Tapusin ang Order',add:'Idagdag',cancel:'Kanselahin',pick:'Pumili ng',required:'kailangan',type:'Paano mo kukunin?',name:'Pangalan',phone:'Cellphone no.',table:'Table no.',note:'Note sa order (opsyonal)',place:'Ilagay ang Order',placing:'Ipinapadala…',yours:'Ang order number mo',pay:'Pumunta sa counter at ibigay ang number na ito para magbayad.',thanks:'Salamat po!',newo:'Bagong Order',stillhere:'Nandiyan ka pa ba?',touch:'Pindutin para magpatuloy',scan:'I-scan ang barcode o hanapin ang item',nf:'Hindi nahanap ang item',left:'natitira',oos:'Ubos na',inst:'In stock',prep:'Inihahanda',ready:'Handa na!',more:'Dagdag pa?',nomore:'Hindi na, salamat',offline:'Walang koneksyon sa server — hindi makakapag-order ngayon.',pin:'Ilagay ang admin PIN',remove:'Alisin',each:'bawat',opts:'Mga pagpipilian',qtyfor:'Dami',welcome:'Maligayang pagdating',lang:'English',setup:'OMNIKiosk Setup',srv:'OMNIPOS server (hal. http://192.168.1.10:3000)',usr:'Kiosk username',pw:'Password',pinlbl:'Admin PIN (pang-labas / settings, default 1234)',connect:'Kumonekta',connecting:'Kumokonekta…',otp:'May OTP ang account na ito — gumamit ng hiwalay na Kiosk user na walang OTP.',nomod:'Walang kiosk module sa server (i-install ang kiosk.js).',noserver:'Hindi maabot ang server.',nologin:'Hindi nakapag-login.',refresh:'I-refresh ang catalog',large:'Malaking text',server:'Server / login / PIN',autostart:'Auto-start pagka-boot',exit:'Lumabas sa kiosk mode',on:'ON',off:'OFF',okb:'OK',viewcart:'Tingnan ang order',items:'item',clear:'Alisin lahat',askclear:'Kanselahin ang order?',max:'Pinakamarami',locked:'Pasensya na, hindi muna available ang kiosk.',lockedSub:'Pumunta po sa counter para mag-order.'},
- en:{start:'Touch to order',order:'Order',pc:'Price Check',q:'Order Status',back:'Back',search:'Search items…',all:'All',feat:'Favorites',cart:'Your order',empty:'Nothing here yet. Pick an item!',total:'Total',checkout:'Checkout',add:'Add',cancel:'Cancel',pick:'Choose',required:'required',type:'How will you get it?',name:'Name',phone:'Mobile no.',table:'Table no.',note:'Order note (optional)',place:'Place Order',placing:'Sending…',yours:'Your order number',pay:'Go to the counter and show this number to pay.',thanks:'Thank you!',newo:'New Order',stillhere:'Are you still there?',touch:'Touch to continue',scan:'Scan a barcode or search for an item',nf:'Item not found',left:'left',oos:'Sold out',inst:'In stock',prep:'Preparing',ready:'Ready!',more:'Add anything else?',nomore:'No thanks',offline:'No connection to the server — cannot place orders right now.',pin:'Enter admin PIN',remove:'Remove',each:'each',opts:'Options',qtyfor:'Qty',welcome:'Welcome',lang:'Tagalog',setup:'OMNIKiosk Setup',srv:'OMNIPOS server (e.g. http://192.168.1.10:3000)',usr:'Kiosk username',pw:'Password',pinlbl:'Admin PIN (exit / settings, default 1234)',connect:'Connect',connecting:'Connecting…',otp:'This account uses OTP — use a separate Kiosk user without OTP.',nomod:'No kiosk module on the server (install kiosk.js).',noserver:'Cannot reach the server.',nologin:'Login failed.',refresh:'Refresh catalog',large:'Large text',server:'Server / login / PIN',autostart:'Auto-start on boot',exit:'Exit kiosk mode',on:'ON',off:'OFF',okb:'OK',viewcart:'View order',items:'items',clear:'Clear all',askclear:'Cancel this order?',max:'Max',locked:'Sorry, this kiosk is temporarily unavailable.',lockedSub:'Please go to the counter to place your order.'}
+ tl:{start:'Pindutin para mag-order',order:'Mag-order',pc:'Price Check',q:'Order Status',back:'Balik',search:'Hanapin ang item…',all:'Lahat',feat:'Paborito',cart:'Order mo',empty:'Wala pang laman. Pumili ng item!',total:'Kabuuan',checkout:'Tapusin ang Order',add:'Idagdag',cancel:'Kanselahin',pick:'Pumili ng',required:'kailangan',type:'Paano mo kukunin?',name:'Pangalan',phone:'Cellphone no.',table:'Table no.',note:'Note sa order (opsyonal)',place:'Ilagay ang Order',placing:'Ipinapadala…',yours:'Ang order number mo',pay:'Pumunta sa counter at ibigay ang number na ito para magbayad.',thanks:'Salamat po!',newo:'Bagong Order',stillhere:'Nandiyan ka pa ba?',touch:'Pindutin para magpatuloy',scan:'I-scan ang barcode o hanapin ang item',nf:'Hindi nahanap ang item',left:'natitira',oos:'Ubos na',inst:'In stock',prep:'Inihahanda',ready:'Handa na!',more:'Dagdag pa?',nomore:'Hindi na, salamat',offline:'Walang koneksyon sa server — hindi makakapag-order ngayon.',pin:'Ilagay ang admin PIN',remove:'Alisin',each:'bawat',opts:'Mga pagpipilian',qtyfor:'Dami',welcome:'Maligayang pagdating',lang:'English',setup:'OMNIKiosk Setup',srv:'OMNIPOS server (hal. http://192.168.1.10:3000)',usr:'Kiosk username',pw:'Password',pinlbl:'Admin PIN (pang-labas / settings, default 1234)',connect:'Kumonekta',connecting:'Kumokonekta…',otp:'May OTP ang account na ito — gumamit ng hiwalay na Kiosk user na walang OTP.',nomod:'Walang kiosk module sa server (i-install ang kiosk.js).',noserver:'Hindi maabot ang server.',nologin:'Hindi nakapag-login.',refresh:'I-refresh ang catalog',large:'Malaking text',server:'Server / login / PIN',autostart:'Auto-start pagka-boot',exit:'Lumabas sa kiosk mode',on:'ON',off:'OFF',okb:'OK',viewcart:'Tingnan ang order',items:'item',clear:'Alisin lahat',askclear:'Kanselahin ang order?',max:'Pinakamarami',locked:'Pasensya na, hindi muna available ang kiosk.',lockedSub:'Pumunta po sa counter para mag-order.',hot:'Patok',waitnow:'Tinatayang hintay',min:'min',slotpick:'Pumili ng petsa at oras',slotfull:'Puno',slotleft:'bakante',noslots:'Walang bakanteng oras sa araw na ito. Pumili ng ibang petsa.',loadslots:'Kinukuha ang mga oras…',today:'Ngayon',tomorrow:'Bukas',retry:'Subukan ulit'},
+ en:{start:'Touch to order',order:'Order',pc:'Price Check',q:'Order Status',back:'Back',search:'Search items…',all:'All',feat:'Favorites',cart:'Your order',empty:'Nothing here yet. Pick an item!',total:'Total',checkout:'Checkout',add:'Add',cancel:'Cancel',pick:'Choose',required:'required',type:'How will you get it?',name:'Name',phone:'Mobile no.',table:'Table no.',note:'Order note (optional)',place:'Place Order',placing:'Sending…',yours:'Your order number',pay:'Go to the counter and show this number to pay.',thanks:'Thank you!',newo:'New Order',stillhere:'Are you still there?',touch:'Touch to continue',scan:'Scan a barcode or search for an item',nf:'Item not found',left:'left',oos:'Sold out',inst:'In stock',prep:'Preparing',ready:'Ready!',more:'Add anything else?',nomore:'No thanks',offline:'No connection to the server — cannot place orders right now.',pin:'Enter admin PIN',remove:'Remove',each:'each',opts:'Options',qtyfor:'Qty',welcome:'Welcome',lang:'Tagalog',setup:'OMNIKiosk Setup',srv:'OMNIPOS server (e.g. http://192.168.1.10:3000)',usr:'Kiosk username',pw:'Password',pinlbl:'Admin PIN (exit / settings, default 1234)',connect:'Connect',connecting:'Connecting…',otp:'This account uses OTP — use a separate Kiosk user without OTP.',nomod:'No kiosk module on the server (install kiosk.js).',noserver:'Cannot reach the server.',nologin:'Login failed.',refresh:'Refresh catalog',large:'Large text',server:'Server / login / PIN',autostart:'Auto-start on boot',exit:'Exit kiosk mode',on:'ON',off:'OFF',okb:'OK',viewcart:'View order',items:'items',clear:'Clear all',askclear:'Cancel this order?',max:'Max',locked:'Sorry, this kiosk is temporarily unavailable.',lockedSub:'Please go to the counter to place your order.',hot:'Best seller',waitnow:'Estimated wait',min:'min',slotpick:'Pick a date and time',slotfull:'Full',slotleft:'left',noslots:'No free times on this day. Please pick another date.',loadslots:'Loading times…',today:'Today',tomorrow:'Tomorrow',retry:'Try again'}
 };
 let LANG='tl';function setLang(l){S.lang=l;LANG=l;saveSettings(S);go(view==='done'?'home':view)}const RD=[['confirm','b','Review bago isumite','Review before submit',1],['minOrder','n','Minimum na order (₱)','Minimum order (₱)',0],['maxItems','n','Max items bawat order (0=walang limit)','Max items per order (0=no limit)',0],['hours','b','Gumamit ng oras ng tindahan','Use store hours',0],['open','t','Bukas (HH:MM)','Opens (HH:MM)','08:00'],['close','t','Sara (HH:MM)','Closes (HH:MM)','21:00'],['tableDine','b','Table no. kung Dine-in','Table no. for Dine-in',1],['nameTake','b','Pangalan kung Take-out','Name for Take-out',1],['phoneCheck','b','I-validate ang cellphone (09XXXXXXXXX)','Validate mobile no. (09XXXXXXXXX)',1],['askPay','b','Itanong ang payment','Ask payment method',1],['askPickup','b','Itanong ang oras ng kuha','Ask pickup time',0],['askDisc','b','Senior/PWD discount declaration','Senior/PWD discount declaration',1],['askAllergy','b','Allergy / special request','Allergy / special request',0],['terms','b','Kailangan ang terms agreement','Require terms agreement',0],['banner','t','Banner text sa Home (promo)','Home banner text (promo)',''],['askPax','b','Ilan ang kakain (Dine-in)','Party size (Dine-in)',0],['askAppt','b','Appointment: petsa at oras (serbisyo)','Appointment date & time (services)',0],['askRef','b','Detalye ng item (laundry/repair/ref)','Item details (laundry/repair/ref)',0],['askAddr','b','Delivery address (kung Delivery)','Delivery address (if Delivery)',0],['rxNotice','b','Paalala sa reseta (parmasya)','Prescription notice (pharmacy)',0],['ageCheck','b','18+ confirmation (alak/yosi/vape)','18+ confirmation (alcohol/tobacco/vape)',1],['sortBtn','b','Sort button (A–Z / presyo)','Sort button (A–Z / price)',1]];
 const PRE={restaurant:{t:['🍔 Restaurant','🍔 Restaurant'],v:{confirm:1,askPay:1,askPickup:0,askDisc:1,askAllergy:1,tableDine:1,nameTake:1,askPax:1,askAppt:0,askRef:0,askAddr:0,rxNotice:0,ageCheck:1}},
@@ -291,11 +317,15 @@ function onLockChange(){
 let lastErr='',CAT=null,CFG={},STORE={},cart=[],view='home',curCat='__all',query='',lastAct=Date.now(),online=true;
 const IMG=new Map(),IMGREQ=new Set();
 const money=n=>(STORE.currencySymbol||'₱')+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const MARK='<svg class="mk" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg>';
+const waitTxt=w=>w?'⏱ '+t('waitnow')+': ~'+w.minutes+' '+t('min'):'';
+const showWaitNow=()=>!!(CAT&&CAT.wait&&CFG.showWait!==false&&BIZ()!=='service');
+function updWait(){const e=document.getElementById('wch');if(!e)return;const w=showWaitNow()?waitTxt(CAT.wait):'';e.textContent=w;e.style.display=w?'':'none'}
 const colorOf=s=>{let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))%360;return `hsl(${h} 45% 52%)`};
 const app=$('#app');
 const offMsg=()=>t('offline')+(lastErr?' ('+lastErr.slice(0,140)+')':'');
 function toast(m,ms){const e=$('#toast');e.textContent=m;e.classList.remove('hide');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.add('hide'),ms||2600)}
-function applyTheme(){document.documentElement.style.setProperty('--brand',CFG.brandColor||'#e4572e');document.documentElement.style.setProperty('--fs',S.large?1.25:1);LANG=S.lang||CFG.language||'tl';document.documentElement.classList.toggle('dark',!!S.dark)}
+function applyTheme(){const st=document.documentElement.style,bc=String(CFG.brandColor||'');if(/^#[0-9a-f]{6}$/i.test(bc)&&bc.toLowerCase()!=='#e4572e'){st.setProperty('--brand',bc);st.setProperty('--brandh',bc)}else{st.removeProperty('--brand');st.removeProperty('--brandh')}st.setProperty('--fs',S.large?1.25:1);LANG=S.lang||CFG.language||'tl';document.documentElement.classList.toggle('dark',!!S.dark)}
 
 async function loadCatalog(initial){
   const r=await api('GET','/api/kiosk/catalog');
@@ -366,17 +396,18 @@ function rHome(){
    <div class="tiny" id="tiny"></div><div class="tools"><button class="lang" id="dk">${S.dark?'☀️':'🌙'}</button><button class="lang" id="lg">🌐 ${esc(t('lang'))}</button></div>
    ${online?'':`<div id="offline" style="position:absolute;top:0;left:0;right:0">${esc(offMsg())}</div>`}
    <h1>${esc(CFG.storeName||STORE.branchName||t('welcome'))}</h1>
-   <p>${esc(CFG.tagline||'')}</p><p id="clk"></p>${R().banner?`<div class="f" style="background:#ffffff33;color:#fff;border-radius:16px;padding:10px 18px;font-weight:700;max-width:90%">📣 ${esc(R().banner)}</div>`:''}
+   <p>${esc(CFG.tagline||'')}</p><p id="clk"></p>${R().banner?`<div class="banner">📣 ${esc(R().banner)}</div>`:''}
+   ${m.order&&showWaitNow()?`<div class="waitchip" id="wch">${esc(waitTxt(CAT.wait))}</div>`:''}
    ${feat.length?`<div id="feat">${feat.map(p=>`<div class="f">⭐ ${esc(p.name)} · ${money(p.price)}</div>`).join('')}</div>`:''}
    <div class="modes">
      ${m.order?`<button class="btn big ${BPRIMARY[BIZ()]==='pc'&&m.priceCheck?'':'primary'}" data-go="order">🛒 ${esc(t('start'))}</button>`:''}
      ${m.priceCheck?`<button class="btn big ${BPRIMARY[BIZ()]==='pc'?'primary':''}" data-go="pc">🏷️ ${esc(t('pc'))}</button>`:''}
      ${m.queueBoard?`<button class="btn big" data-go="q">📣 ${esc(t('q'))}</button>`:''}
-   </div></div>`;
+   </div><div class="pw">${MARK}<span>OmniPOS</span></div></div>`;
   $('#tiny').onclick=adminTap;$('#lg').onclick=toggleLang;$('#dk').onclick=toggleDark;tickClock();
   app.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{if(b.dataset.go==='order'&&!isOpen()){toast(L('Sarado pa ang tindahan. Bukas ng ','Store is closed. Opens at ')+R().open,3500);return}if(b.dataset.go==='order')cart=[];curCat='__all';query='';go(b.dataset.go)});
 }
-function topBar(title,extra){return `<div class="bar"><button class="chip" id="bk">← ${esc(t('back'))}</button><div class="logo">${esc(title)}</div>${extra||''}<button class="lang" id="lg">🌐<span class="ln"> ${esc(t('lang'))}</span></button></div>${online?'':`<div id="offline">${esc(offMsg())}</div>`}`}
+function topBar(title,extra){return `<div class="bar"><button class="chip" id="bk">← ${esc(t('back'))}</button><div class="logo">${MARK}<span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(title)}</span></div>${extra||''}<button class="lang" id="lg">🌐<span class="ln"> ${esc(t('lang'))}</span></button></div>${online?'':`<div id="offline">${esc(offMsg())}</div>`}`}
 function rOrder(){
   app.innerHTML=`<div class="screen" id="order">${topBar(CFG.storeName||t('order'),`<input class="search" id="sq" placeholder="${esc(t('search'))}" value="${esc(query)}"><span class="sp"></span>${R().sortBtn?`<button class="chip" id="srt">⇅ ${sortMode==='az'?'A–Z':sortMode==='pr'?'₱↑':L('Ayos','Sort')}</button>`:''}`)}
    <div class="stepbar" id="stepbar"></div><div class="body"><div class="cats" id="cats"></div><div class="grid" id="grid"></div><div id="pager"></div><div class="cart" id="cart"></div></div><button id="mini"></button></div>`;
@@ -387,8 +418,8 @@ function rOrder(){
   $('#mini').onclick=()=>{$('#toast').classList.add('hide');$('#cart').classList.add('open');stepbar()};
 }
 function renderCats(){
-  const cats=['__all'];if((CFG.featuredCodes||[]).length)cats.push('__feat');cats.push(...CAT.categories);
-  $('#cats').innerHTML=cats.map(c=>`<button class="cat ${c===curCat?'on':''}" data-c="${esc(c)}">${c==='__all'?esc(t('all')):c==='__feat'?'⭐ '+esc(t('feat')):esc(c)}</button>`).join('');
+  const cats=['__all'];if((CAT.bestSellers||[]).length)cats.push('__hot');if((CFG.featuredCodes||[]).length)cats.push('__feat');cats.push(...CAT.categories);
+  $('#cats').innerHTML=cats.map(c=>`<button class="cat ${c===curCat?'on':''}" data-c="${esc(c)}">${c==='__all'?esc(t('all')):c==='__hot'?'🔥 '+esc(t('hot')):c==='__feat'?'⭐ '+esc(t('feat')):esc(c)}</button>`).join('');
   $('#cats').querySelectorAll('.cat').forEach(b=>b.onclick=()=>{curCat=b.dataset.c;renderCats();renderGrid();$('#grid').scrollTop=0});
 }
 function visibleProducts(){
@@ -396,6 +427,7 @@ function visibleProducts(){
   let list=CAT.products;
   if(q)list=list.filter(p=>p.name.toLowerCase().includes(q)||p.code.toLowerCase()===q||p.category.toLowerCase().includes(q));
   else if(curCat==='__feat'){const f=new Set(CFG.featuredCodes);list=list.filter(p=>f.has(p.code))}
+  else if(curCat==='__hot'){const h=new Set(CAT.bestSellers||[]);list=list.filter(p=>h.has(p.code))}
   else if(curCat!=='__all')list=list.filter(p=>p.category===curCat);
   if(sortMode==='az')list=[...list].sort((a,b)=>a.name.localeCompare(b.name));else if(sortMode==='pr')list=[...list].sort((a,b)=>a.price-b.price);
   return list;
@@ -424,7 +456,7 @@ function renderGrid(){
     const inCart=cart.filter(l=>l.code===p.code).reduce((a,l)=>a+l.qty,0);
     const low=CFG.showStock&&p.inStock&&p.stock<=5&&!p.allowDecimal;
     return `<button class="p ${p.inStock?'':'out'}" data-code="${esc(p.code)}"><div class="imgw">${imgDiv(p)}
-      ${!p.inStock?`<span class="tag">${esc(t('oos'))}</span>`:low?`<span class="tag">${p.stock} ${esc(t('left'))}</span>`:''}
+      ${(!p.inStock||p.hot||low)?`<div class="tags">${!p.inStock?`<span class="tag">${esc(t('oos'))}</span>`:`${p.hot?`<span class="tag hot">🔥 ${esc(t('hot'))}</span>`:''}${low?`<span class="tag">${p.stock} ${esc(t('left'))}</span>`:''}`}</div>`:''}
       ${inCart?`<span class="inc">${inCart}</span>`:''}
       </div><div class="txt"><div class="nm">${esc(p.name)}</div><div class="row"><div class="pr">${money(p.price)}${p.baseUnit?` <small style="color:var(--mute);font-weight:600">/${esc(p.baseUnit)}</small>`:''}</div>${p.inStock?'<span class="add">+</span>':''}</div></div></button>`}).join(''):`<div class="hint" style="grid-column:1/-1">${esc(t('nf'))}</div>`;
   $('#grid').querySelectorAll('.p').forEach(b=>b.onclick=()=>pickProduct(prod(b.dataset.code)));
@@ -438,8 +470,8 @@ function renderCart(){
      ${l.options.length?`<small>${esc(l.options.map(o=>o.name).join(', '))}</small>`:''}${l.note?`<small>📝 ${esc(l.note)}</small>`:''}
      <small>${money(l.unitPrice+l.options.reduce((a,o)=>a+o.price,0))} ${esc(t('each'))}</small></div>
      <div class="qty"><button data-d="-1" data-i="${i}">−</button><span>${l.qty}</span><button data-d="1" data-i="${i}">+</button></div><button class="x" data-rm="${i}">✕</button><b class="lt">${money(lineTotal(l))}</b></div>`).join(''):`<div class="empty">${esc(t('empty'))}</div>`}</div>
-   <div class="tot"><div class="row"><span>${esc(t('total'))}</span><span>${money(cartTotal())}</span></div>
-   <button class="btn" id="co" ${cart.length&&online?'':'disabled'} style="min-height:68px;font-size:1.2em;padding:0 10px">${esc(t('checkout'))} →</button></div>`;
+   <div class="tot">${cart.length&&showWaitNow()?`<div class="waitrow">${esc(waitTxt(CAT.wait))}</div>`:''}<div class="row"><span>${esc(t('total'))}</span><span>${money(cartTotal())}</span></div>
+   <button class="btn" id="co" ${cart.length&&online?'':'disabled'} style="min-height:68px;font-size:1.2em;padding:10px 12px;width:100%">${esc(t('checkout'))} →</button></div>`;
   el.querySelectorAll('.qty button').forEach(b=>b.onclick=()=>{changeQty(+b.dataset.i,+b.dataset.d);renderGrid()});
   $('#co').onclick=startCheckout;
   el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{cart.splice(+b.dataset.rm,1);renderCart();renderGrid()});
@@ -514,11 +546,25 @@ function checkoutForm(){
   const steps=()=>order.filter(k=>k==='review'?(r.confirm||order.filter(x=>x!=='review'&&has[x]()).length===0):has[k]());
   const m=modal('');const box=m.firstChild;
   const tidy=()=>box.querySelectorAll('[data-f]').forEach(e=>st[e.dataset.f]=e.type==='checkbox'?e.checked:e.value);
+  /* Booking slots: galing sa server (/api/kiosk/slots) ang petsa/oras/bakante, hindi sa orasan ng tablet. */
+  const SLD={days:null,by:{},asked:{},err:''};
+  const loc=()=>LANG==='tl'?'fil-PH':'en-PH';
+  const fmtT=hm=>{const a=String(hm).split(':'),h=+a[0]||0;return ((h%12)||12)+':'+String(a[1]||'00').padStart(2,'0')+' '+(h<12?'AM':'PM')};
+  const fmtD=(d,o)=>new Date(d+'T12:00:00').toLocaleDateString(loc(),o);
+  const apptTxt=()=>st.appt&&st.apptTime?fmtD(st.appt,{weekday:'short',month:'short',day:'numeric'})+' · '+fmtT(st.apptTime):'';
+  async function loadSlots(date){
+    SLD.asked[date||'']=true;SLD.err='';
+    const r=await api('GET','/api/kiosk/slots'+(date?'?date='+encodeURIComponent(date):''));
+    if(r.ok){SLD.days=r.data.days||[];SLD.by[r.data.date]=r.data.slots||[];if(!st.appt)st.appt=r.data.date}
+    else SLD.err=(r.data&&r.data.message)||t('offline');
+    if(document.body.contains(box)&&curKey==='extra'){tidy();paint()}
+  }
+  let curKey='';
   const check=k=>{
     if(k==='type'){if(needTable()&&!st.table.trim())return L('Ilagay ang table no.','Enter your table number');if(needPax()&&!(+st.pax>0))return L('Ilan kayo?','How many people?')}
     if(k==='info'){if(needAddr()&&st.addr.trim().length<8)return L('Ilagay ang buong address (street, barangay)','Enter your full address (street, barangay)');if(needName()&&!st.name.trim())return L('Ilagay ang pangalan','Enter your name');
       if(needPhone()){if(!st.phone.trim())return L('Ilagay ang cellphone no.','Enter your mobile number');if(r.phoneCheck&&!/^(09|\+639)\d{9}$/.test(st.phone.replace(/[\s-]/g,'')))return L('Mali ang cellphone no. (09XXXXXXXXX)','Invalid mobile number (09XXXXXXXXX)')}}
-    if(k==='extra'){if(r.askAppt){if(!st.appt||!st.apptTime)return L('Piliin ang petsa at oras','Pick a date and time');if(new Date(st.appt+'T'+st.apptTime)<new Date())return L('Lampas na ang oras na iyan','That time has already passed')}if(r.askRef&&!st.ref.trim())return L('Ilagay ang detalye ng item','Enter the item details');if(r.rxNotice&&!st.rx)return L('Kumpirmahin ang reseta','Please confirm the prescription');if(needAdult()&&!st.adult)return L('Kailangan ang 18+ confirmation','18+ confirmation is required');if(st.disc&&!st.discId.trim())return L('Ilagay ang ID no. para sa discount','Enter your ID number for the discount')}
+    if(k==='extra'){if(r.askAppt){if(!st.appt||!st.apptTime)return L('Piliin ang petsa at oras','Pick a date and time')}if(r.askRef&&!st.ref.trim())return L('Ilagay ang detalye ng item','Enter the item details');if(r.rxNotice&&!st.rx)return L('Kumpirmahin ang reseta','Please confirm the prescription');if(needAdult()&&!st.adult)return L('Kailangan ang 18+ confirmation','18+ confirmation is required');if(st.disc&&!st.discId.trim())return L('Ilagay ang ID no. para sa discount','Enter your ID number for the discount')}
     if(k==='review'){if(r.terms&&!st.agree)return L('Pumayag muna sa terms','Please accept the terms')}
     return '';
   };
@@ -532,28 +578,47 @@ function checkoutForm(){
     await loadCatalog();
     if(LOCKED)return;
     for(const l of cart){const p=prod(l.code);if(!p||!p.inStock||stockLeft(l.code)<-1e-9)return msg((l.name)+': '+t('oos')+L(' — alisin sa order.',' — please remove it.'))}
-    const parts=[];if(needPax()&&st.pax)parts.push('Pax:'+st.pax);if(needAddr())parts.push('Addr:'+st.addr.trim().slice(0,70));if(r.askAppt)parts.push('Appt:'+st.appt+' '+st.apptTime);if(r.askRef&&st.ref.trim())parts.push('Ref:'+st.ref.trim());if(r.rxNotice)parts.push('Rx:will bring');if(needAdult())parts.push('18+:confirmed');if(r.askPay&&st.pay)parts.push('Pay:'+st.pay);if(r.askPickup&&st.pickup!=='ASAP')parts.push('Pickup:'+st.pickup);
+    const parts=[];if(needPax()&&st.pax)parts.push('Pax:'+st.pax);if(needAddr())parts.push('Addr:'+st.addr.trim().slice(0,70));if(r.askRef&&st.ref.trim())parts.push('Ref:'+st.ref.trim());if(r.rxNotice)parts.push('Rx:will bring');if(needAdult())parts.push('18+:confirmed');if(r.askPay&&st.pay)parts.push('Pay:'+st.pay);if(r.askPickup&&st.pickup!=='ASAP')parts.push('Pickup:'+st.pickup);
     if(st.disc)parts.push(st.disc+' ID:'+st.discId.trim());if(st.allergy.trim())parts.push('Allergy:'+st.allergy.trim());if(st.note.trim())parts.push(st.note.trim());
     const body={items:cart.map(l=>({code:l.code,qty:l.qty,unit:l.unit,options:l.options.map(o=>({group:o.group,name:o.name})),note:l.note})),orderType:st.type,customerName:st.name.trim(),phone:st.phone.trim(),table:st.table.trim(),note:parts.join(' | ').slice(0,200),device:S.device};
+    if(r.askAppt&&st.appt&&st.apptTime)body.appt={date:st.appt,time:st.apptTime};
     const res=await api('POST','/api/kiosk/orders',body);
-    if(res.ok){m.close();const o=res.data.order;o.appt=r.askAppt&&st.appt?st.appt+(st.apptTime?' '+st.apptTime:''):'';const tot=o.total;cart=[];showDone(o,tot);loadCatalog()}
+    if(res.ok){m.close();const o=res.data.order;o.apptLabel=o.appt?fmtD(o.appt.date,{weekday:'short',month:'short',day:'numeric'})+' · '+fmtT(o.appt.time):'';const tot=o.total;cart=[];showDone(o,tot);loadCatalog()}
     else if(res.status===0)msg(L('Walang sagot ang server. Tingnan muna sa Order Status bago mag-order ulit.','No reply from server. Check Order Status before ordering again.'));
+    else if(res.data&&res.data.slotTaken){ // may nakauna sa oras na iyon: bumalik sa pagpili ng oras
+      st.apptTime='';SLD.by={};SLD.asked={};idx=Math.max(0,steps().indexOf('extra'));paint();const e=$('#er',box);if(e)e.textContent=res.data.message||''}
     else{msg((res.data&&res.data.message)||t('offline'));if(res.status===409||res.status===400)loadCatalog().then(()=>view==='order'&&renderGrid())}
   }
   function paint(){
-    const S2=steps();if(idx<0)idx=0;const k=S2[idx],last=idx===S2.length-1;
+    const S2=steps();if(idx<0)idx=0;const k=S2[idx],last=idx===S2.length-1;curKey=k;
+    const apptHtml=()=>{
+      const date=st.appt||(SLD.days&&SLD.days[0])||'',slots=SLD.by[date];
+      if(!SLD.asked[date]&&!SLD.err)setTimeout(()=>loadSlots(date),0);
+      const days=SLD.days||[];
+      const dayBtn=(d,i)=>`<button type="button" class="day ${d===st.appt?'on':''}" data-day="${esc(d)}">${esc(i===0?t('today'):i===1?t('tomorrow'):fmtD(d,{weekday:'short'}))}<small>${esc(fmtD(d,{month:'short',day:'numeric'}))}</small></button>`;
+      const slotBtn=s=>`<button type="button" class="slot ${s.time===st.apptTime?'on':''}" data-slot="${esc(s.time)}" ${s.available?'':'disabled'}><b>${esc(fmtT(s.time))}</b>${!s.available&&!s.past?`<small>${esc(t('slotfull'))}</small>`:s.available&&s.left>1?`<small>${s.left} ${esc(t('slotleft'))}</small>`:''}</button>`;
+      let body;
+      if(SLD.err)body=`<div class="slotmsg">${esc(SLD.err)}<br><button type="button" class="btn ghost" id="slr" style="margin-top:8px;min-height:44px">${esc(t('retry'))}</button></div>`;
+      else if(!slots)body=`<div class="slotmsg">${esc(t('loadslots'))}</div>`;
+      else if(!slots.some(s=>s.available))body=`<div class="slotmsg">${esc(t('noslots'))}</div>`;
+      else body=`<div class="slots">${slots.map(slotBtn).join('')}</div>`;
+      return `<div class="field"><label>📅 ${esc(t('slotpick'))}</label><div class="days">${days.map(dayBtn).join('')}</div>${body}</div>`;
+    };
     const sel=(f,arr)=>`<div class="seg">${arr.map(o=>`<button class="opt ${st[f]===o[0]?'on':''}" data-s="${f}" data-v="${esc(o[0])}">${esc(o[1])}</button>`).join('')}</div>`;
     let h='';
     if(k==='type')h=`${needPax()?`<div class="field"><label>${esc(L('Ilan kayo?','Party size'))}</label><input data-f="pax" inputmode="numeric" maxlength="2" value="${esc(st.pax)}"></div>`:''}${types.length>1?`<div class="field"><label>${esc(t('type'))}</label>${sel('type',types.map(x=>[x,x]))}</div>`:''}${needTable()?`<div class="field"><label>${esc(t('table'))}</label><input data-f="table" inputmode="numeric" maxlength="10" value="${esc(st.table)}"></div>`:''}`;
     if(k==='info')h=`${needAddr()?`<div class="field"><label>${esc(L('Delivery address + landmark','Delivery address + landmark'))}</label><textarea data-f="addr" rows="2" maxlength="90">${esc(st.addr)}</textarea></div>`:''}${needName()?`<div class="field"><label>${esc(t('name'))}</label><input data-f="name" maxlength="40" value="${esc(st.name)}"></div>`:''}${needPhone()?`<div class="field"><label>${esc(t('phone'))}</label><input data-f="phone" inputmode="tel" maxlength="20" value="${esc(st.phone)}"></div>`:''}`;
-    if(k==='extra')h=`${r.askAppt?`<div class="field"><label>${esc(L('Appointment','Appointment'))}</label><div class="rowx"><input type="date" data-f="appt" min="${new Date().toISOString().slice(0,10)}" value="${esc(st.appt)}"><input type="time" data-f="apptTime" value="${esc(st.apptTime)}"></div></div>`:''}${r.askRef?`<div class="field"><label>${esc(L('Detalye ng item (hal. bag ng labada, modelo ng phone)','Item details (e.g. laundry bag, phone model)'))}</label><input data-f="ref" maxlength="50" value="${esc(st.ref)}"></div>`:''}${r.rxNotice?`<label class="chk field"><input type="checkbox" data-f="rx" ${st.rx?'checked':''}> ${esc(L('Magdadala ako ng reseta para sa gamot na kailangan nito.','I will bring a prescription for medicines that require one.'))}</label>`:''}${needAdult()?`<label class="chk field"><input type="checkbox" data-f="adult" ${st.adult?'checked':''}> ${esc(L('Ako ay 18 taong gulang pataas (ipapakita ang ID sa counter).','I am 18 or older (ID will be checked at the counter).'))}</label>`:''}${r.askPay?`<div class="field"><label>${esc(L('Paano magbabayad?','How will you pay?'))}</label>${sel('pay',[['Cash',L('Cash','Cash')],['GCash','GCash'],['Maya','Maya'],['Card','Card']])}</div>`:''}
+    if(k==='extra')h=`${r.askAppt?apptHtml():''}${r.askRef?`<div class="field"><label>${esc(L('Detalye ng item (hal. bag ng labada, modelo ng phone)','Item details (e.g. laundry bag, phone model)'))}</label><input data-f="ref" maxlength="50" value="${esc(st.ref)}"></div>`:''}${r.rxNotice?`<label class="chk field"><input type="checkbox" data-f="rx" ${st.rx?'checked':''}> ${esc(L('Magdadala ako ng reseta para sa gamot na kailangan nito.','I will bring a prescription for medicines that require one.'))}</label>`:''}${needAdult()?`<label class="chk field"><input type="checkbox" data-f="adult" ${st.adult?'checked':''}> ${esc(L('Ako ay 18 taong gulang pataas (ipapakita ang ID sa counter).','I am 18 or older (ID will be checked at the counter).'))}</label>`:''}${r.askPay?`<div class="field"><label>${esc(L('Paano magbabayad?','How will you pay?'))}</label>${sel('pay',[['Cash',L('Cash','Cash')],['GCash','GCash'],['Maya','Maya'],['Card','Card']])}</div>`:''}
       ${r.askPickup?`<div class="field"><label>${esc(L('Kailan kukunin?','Pickup time'))}</label>${sel('pickup',[['ASAP',L('Ngayon na','ASAP')],['+15m','+15 min'],['+30m','+30 min'],['+60m','+1 hr']])}</div>`:''}
       ${r.askDisc?`<div class="field"><label>${esc(L('May discount ba? (kailangan ng ID sa counter)','Discount? (ID required at counter)'))}</label>${sel('disc',[['',L('Wala','None')],['Senior','Senior'],['PWD','PWD']])}${st.disc?`<input data-f="discId" placeholder="ID no." value="${esc(st.discId)}" style="margin-top:8px">`:''}</div>`:''}
       ${r.askAllergy?`<div class="field"><label>${esc(L('Allergy / special request','Allergy / special request'))}</label><input data-f="allergy" maxlength="60" value="${esc(st.allergy)}"></div>`:''}
       ${CFG.orderNote?`<div class="field"><label>${esc(t('note'))}</label><textarea data-f="note" rows="2" maxlength="80">${esc(st.note)}</textarea></div>`:''}`;
-    if(k==='review')h=`<div style="font-weight:700;margin-bottom:8px">${types.length>1?esc(st.type):''}${st.table?' · '+esc(t('table'))+' '+esc(st.table):''}${st.name?' · '+esc(st.name):''}</div>`+cart.map(l=>`<div class="rowx" style="justify-content:space-between;padding:4px 0"><span>${l.qty}× ${esc(l.name)}${l.unit?` (${esc(l.unit)})`:''}${l.options.length?` <small style="color:var(--mute)">(${esc(l.options.map(o=>o.name).join(', '))})</small>`:''}</span><b>${money(lineTotal(l))}</b></div>`).join('')+(st.disc?`<div style="color:var(--mute);margin-top:6px">${esc(st.disc)} ID: ${esc(st.discId)} — ${esc(L('i-verify sa counter','verified at counter'))}</div>`:'')+(r.terms?`<label class="chk" style="margin-top:12px"><input type="checkbox" data-f="agree" ${st.agree?'checked':''}> ${esc(L('Sumasang-ayon ako na magbayad sa counter at tama ang order ko.','I agree to pay at the counter and my order is correct.'))}</label>`:'');
+    if(k==='review')h=`<div style="font-weight:700;margin-bottom:8px">${types.length>1?esc(st.type):''}${st.table?' · '+esc(t('table'))+' '+esc(st.table):''}${st.name?' · '+esc(st.name):''}</div>${r.askAppt&&apptTxt()?`<div style="font-weight:700;margin-bottom:8px">📅 ${esc(apptTxt())}</div>`:''}`+cart.map(l=>`<div class="rowx" style="justify-content:space-between;padding:4px 0"><span>${l.qty}× ${esc(l.name)}${l.unit?` (${esc(l.unit)})`:''}${l.options.length?` <small style="color:var(--mute)">(${esc(l.options.map(o=>o.name).join(', '))})</small>`:''}</span><b>${money(lineTotal(l))}</b></div>`).join('')+(st.disc?`<div style="color:var(--mute);margin-top:6px">${esc(st.disc)} ID: ${esc(st.discId)} — ${esc(L('i-verify sa counter','verified at counter'))}</div>`:'')+(r.terms?`<label class="chk" style="margin-top:12px"><input type="checkbox" data-f="agree" ${st.agree?'checked':''}> ${esc(L('Sumasang-ayon ako na magbayad sa counter at tama ang order ko.','I agree to pay at the counter and my order is correct.'))}</label>`:'');
     box.innerHTML=`<header>${esc(t('checkout'))} · ${money(cartTotal())}</header><div class="c"><div class="steps">${S2.map((_,i)=>`<i class="${i<=idx?'on':''}"></i>`).join('')}</div>${h}<div class="err" id="er"></div></div><footer><button class="btn ghost" id="x">${esc(idx?t('back'):t('cancel'))}</button><button class="btn ${last?'ok big':''}" id="go" style="min-height:60px">${esc(last?t('place'):L('Susunod →','Next →'))}</button></footer>`;
     box.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{tidy();st[b.dataset.s]=b.dataset.v;if(b.dataset.s==='disc'&&!b.dataset.v)st.discId='';paint()});
+    box.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{tidy();st.appt=b.dataset.day;st.apptTime='';paint()});
+    box.querySelectorAll('[data-slot]').forEach(b=>b.onclick=()=>{tidy();st.apptTime=b.dataset.slot;paint()});
+    const slr=$('#slr',box);if(slr)slr.onclick=()=>{SLD.err='';SLD.asked={};tidy();paint()};
     $('#x',box).onclick=()=>{tidy();if(idx>0){idx--;paint()}else m.close()};
     $('#go',box).onclick=()=>{tidy();const e=check(k);if(e){$('#er',box).textContent=e;return}if(last)submit($('#go',box));else{idx++;paint()}};
   }
@@ -563,7 +628,7 @@ function showDone(o,total){
   view='done';
   app.innerHTML=`<div class="screen" id="done"><div style="font-size:3em">✅</div><h2 style="margin:0">${esc(t('thanks'))}</h2>
    <div>${esc(t('yours'))}</div><div class="no">${esc(o.orderNo)}</div>
-   <div style="font-size:1.3em;font-weight:700">${esc(o.orderType)} · ${money(total)}</div>${o.appt?`<div style="font-size:1.3em;font-weight:700">📅 ${esc(o.appt)}</div>`:''}
+   <div style="font-size:1.3em;font-weight:700">${esc(o.orderType)} · ${money(total)}</div>${o.apptLabel?`<div style="font-size:1.3em;font-weight:700">📅 ${esc(o.apptLabel)}</div>`:''}${o.wait&&!o.apptLabel&&CFG.showWait!==false&&BIZ()!=='service'?`<div class="waitchip">${esc(waitTxt(o.wait))}</div>`:''}
    <div id="qr"></div><p style="max-width:520px;color:var(--mute);font-size:1.15em">${esc(t('pay'))}</p>
    <button class="btn big" id="nw">${esc(t('newo'))}</button><button class="lang" id="lg">🌐 ${esc(t('lang'))}</button></div>`;
   try{new QRCode($('#qr'),{text:o.id,width:150,height:150})}catch(e){}
@@ -610,9 +675,9 @@ document.addEventListener('keydown',e=>{
 /* ---------- queue board ---------- */
 let qTimer=null;
 function rQ(){
-  app.innerHTML=`<div class="screen" id="q">${topBar(t('q'))}<div class="cols"><div class="col p"><h2>${(BICON[BIZ()]||['🍳'])[0]} ${esc(t('prep'))}</h2><div class="nums" id="qp"></div></div><div class="col r"><h2>✅ ${esc(t('ready'))}</h2><div class="nums" id="qr"></div></div></div></div>`;
+  app.innerHTML=`<div class="screen" id="q">${topBar(t('q'))}<div class="cols"><div class="col p"><h2>${(BICON[BIZ()]||['🍳'])[0]} ${esc(t('prep'))}</h2><div class="nums" id="qp"></div></div><div class="col r"><h2>✅ ${esc(t('ready'))}</h2><div class="nums" id="qr"></div></div></div><div class="wt" id="qw"></div></div>`;
   $('#lg').onclick=toggleLang;$('#bk').onclick=()=>{clearInterval(qTimer);go('home')};
-  const poll=async()=>{if(view!=='q'){clearInterval(qTimer);return}const r=await api('GET','/api/kiosk/queue');if(r.ok){$('#qp').innerHTML=r.data.preparing.map(n=>`<div class="n">${esc(n)}</div>`).join('');$('#qr').innerHTML=r.data.ready.map(n=>`<div class="n">${esc(n)}</div>`).join('')}};
+  const poll=async()=>{if(view!=='q'){clearInterval(qTimer);return}const r=await api('GET','/api/kiosk/queue');if(r.ok){$('#qp').innerHTML=r.data.preparing.map(n=>`<div class="n">${esc(n)}</div>`).join('');$('#qr').innerHTML=r.data.ready.map(n=>`<div class="n">${esc(n)}</div>`).join('');const qw=$('#qw');if(qw)qw.innerHTML=r.data.wait&&BIZ()!=='service'?`<span class="waitchip">${esc(waitTxt(r.data.wait))}</span>`:''}};
   poll();clearInterval(qTimer);qTimer=setInterval(poll,4000);
 }
 
@@ -701,7 +766,7 @@ let tk=0;setInterval(async()=>{ // pana-panahong
   if(credBad||Date.now()<AUTH_BLOCK)return; // huwag nang ulit-ulitin ang maling login (iwas lockout) refresh ng catalog (presyo/stock) habang walang ginagawa sa home
   if(LOCKED){await loadCatalog();return} // locked: re-check every 15s; onLockChange() brings the home screen back once the subscription is active
   if(online&&(++tk%4))return;
-  if(view==='home'||view==='pc'){const was=online;await loadCatalog();if(view==='home'&&(was!==online||!online))rHome()}
+  if(view==='home'||view==='pc'){const was=online;await loadCatalog();if(view==='home'&&(was!==online||!online))rHome();else if(view==='home')updWait()}
 },15000);
 
 /* ---------- boot ---------- */
@@ -713,7 +778,19 @@ let tk=0;setInterval(async()=>{ // pana-panahong
   if(!r.ok&&!CAT){app.innerHTML='';setupScreen((r.data&&r.data.message)||t('noserver'));return}
   go('home');
 })();
-window.__kiosk={go,get cart(){return cart}}; // para sa testing
+/* Safety net: kung may button na lumampas pa rin sa screen (napakahabang salita, malaking text mode), paliitin ang font nito hanggang magkasya. */
+const FITSEL='.btn,.chip,.lang,.opt,.slot,.day';let fitT=0;
+function fitButtons(){
+  cancelAnimationFrame(fitT);
+  fitT=requestAnimationFrame(()=>{const vw=document.documentElement.clientWidth;
+    document.querySelectorAll(FITSEL).forEach(b=>{if(!b.offsetParent)return;if(b.dataset.fit){b.style.fontSize='';delete b.dataset.fit}
+      const bad=()=>{const r=b.getBoundingClientRect();return b.scrollWidth>b.clientWidth+2||r.right>vw+1||r.left<-1};
+      let n=0;while(n++<10&&bad()){const fs=parseFloat(getComputedStyle(b).fontSize);if(fs<=11)break;b.style.fontSize=(fs-1)+'px';b.dataset.fit=1}});
+  });
+}
+new MutationObserver(fitButtons).observe(document.body,{childList:true,subtree:true,characterData:true});
+addEventListener('resize',fitButtons);
+window.__kiosk={go,get cart(){return cart},fitButtons}; // para sa testing
 })();
 </script>
 </body>
