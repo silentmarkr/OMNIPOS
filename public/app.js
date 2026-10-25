@@ -13960,9 +13960,10 @@ function renderCartRows(changedProductCode) {
                        </select>`
                     : '';
                 const levelTagHtml = item.priceLevel ? ` <small style="color:#2563eb;font-weight:600;">${escapeHtml(item.priceLevel)}</small>` : '';
+                const kioskTagHtml = item.kioskOrderId ? ` <small style="opacity:0.7;font-weight:600;">Kiosk #${escapeHtml(String(item.kioskOrderNo || ''))}</small>` : '';
                 row.innerHTML = `
                     <div class="cart-item-details">
-                        <h4>${escapeHtml(item.name)}${levelTagHtml}</h4>
+                        <h4>${escapeHtml(item.name)}${levelTagHtml}${kioskTagHtml}</h4>
                         ${unitSelectHtml}
                     </div>
                     <div class="cart-item-meta-row">
@@ -15147,6 +15148,7 @@ async function submitFinalPaymentTransactionInner() {
         customerName: selectedCartCustomer ? selectedCartCustomer.name :'',
         customerEmail: selectedCartCustomer ? (selectedCartCustomer.email ||'') :'',
         buyer: collectBuyerInfoFromPaymentModal(),
+        kioskOrderId: getCartKioskOrderId() || null,
         timestamp: new Date().toLocaleString(),
         isoDate: new Date().toISOString()
     };
@@ -15238,6 +15240,8 @@ async function submitFinalPaymentTransactionInner() {
             if (typeof loadTerminalCatalog ==='function') loadTerminalCatalog();
         } else if (output.code ==='LOYALTY_AUTH_REQUIRED' || output.code ==='LOYALTY_CARD_INVALID') {
             Swal.fire('Loyalty Redemption Not Authorized', output.message,'warning');
+        } else if (output.code === 'KIOSK_ORDER_UNAVAILABLE') {
+            Swal.fire('Kiosk Order Not Available', output.message || 'The kiosk order can no longer be paid.', 'warning');
         } else if (output.featureLocked) {
         } else {
             Swal.fire('Server Error', `The sale could not be completed: ${output.message}`,'error');
@@ -28576,6 +28580,163 @@ async function resolveScanMatchFast(code) {
     await refreshProductsForScan();
     return resolveScannedProductCode(code);
 }
+// ---- Kiosk order (OMNIKiosk) na ini-scan sa POS Terminal ----
+// Ang QR sa kiosk ay ang order id (hal. K20261025-003). Ini-load nito ang mga item ng order sa cart gamit ang PRESYO AT STOCK NG POS
+// (ang server ang bumabawas ng stock at gumagawa ng BIR invoice sa normal na bayad); ang cart line ay may kioskOrderId para
+// ma-tag ng server ang order na bayad na pagkatapos ma-save ang sale (hindi na ito ma-scan ulit).
+const KIOSK_ORDER_CODE_RE = /^K\d{8}-\d{3,}$/i;
+function isKioskOrderCode(code) { return KIOSK_ORDER_CODE_RE.test(String(code || '').trim()); }
+function getCartKioskOrderId() {
+    const line = Array.isArray(shoppingCart) ? shoppingCart.find(i => i && i.kioskOrderId) : null;
+    return line ? String(line.kioskOrderId) : '';
+}
+let kioskOrderLoadInFlight = false;
+let lastKioskOrderScan = { id: '', t: 0 };
+async function loadKioskOrderIntoCart(rawCode, fromCamera) {
+    const id = String(rawCode || '').trim().toUpperCase();
+    if (!isKioskOrderCode(id)) return false;
+    if (kioskOrderLoadInFlight) return false;
+    // Ang camera ay paulit-ulit na nakakabasa ng parehong QR; huwag hayaang mag-spam ng dialog.
+    if (fromCamera && id === lastKioskOrderScan.id && Date.now() - lastKioskOrderScan.t < 5000) return false;
+    lastKioskOrderScan = { id, t: Date.now() };
+    kioskOrderLoadInFlight = true;
+    try {
+        return await loadKioskOrderIntoCartInner(id);
+    } catch (e) {
+        console.warn('Kiosk order load failed:', e);
+        Swal.fire('Kiosk Order', 'Hindi ma-load ang kiosk order. Tingnan ang koneksyon sa server at subukan ulit.', 'error');
+        return false;
+    } finally {
+        kioskOrderLoadInFlight = false;
+    }
+}
+async function loadKioskOrderIntoCartInner(id) {
+    const linked = getCartKioskOrderId();
+    if (linked === id) {
+        Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'Naka-load na ang kiosk order na ito sa cart', showConfirmButton: false, timer: 2200 });
+        return false;
+    }
+    if (linked) {
+        const linkedLine = shoppingCart.find(i => i && i.kioskOrderId);
+        Swal.fire('Kiosk Order', `May naka-load nang kiosk order${linkedLine && linkedLine.kioskOrderNo ? ' #' + escapeHtml(String(linkedLine.kioskOrderNo)) : ''} sa cart. Bayaran o i-clear muna ito bago mag-load ng iba.`, 'warning');
+        return false;
+    }
+    const res = await authFetch(`${API_URL}/kiosk/orders/${encodeURIComponent(id)}`, { cache: 'no-store' });
+    if (res.status === 402) return false; // naka-lock ang Self-Order Kiosk module; ang authFetch na ang nagpapakita ng subscription prompt
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || !data.success || !data.order) {
+        const msg = res.status === 404 ? `Hindi nahanap ang kiosk order [ ${escapeHtml(id)} ].` : escapeHtml((data && data.message) || `HTTP ${res.status}`);
+        Swal.fire('Kiosk Order', msg, 'error');
+        return false;
+    }
+    const order = data.order;
+    if (!data.payable) {
+        Swal.fire('Kiosk Order', escapeHtml(data.message || 'Hindi na pwedeng bayaran ang kiosk order na ito.'), 'warning');
+        return false;
+    }
+    // Idagdag lang sa cart kung walang magkaparehong item; kung hindi, kailangang i-clear muna (iisang unit/presyo bawat product sa isang sale).
+    let replaceCart = false;
+    if (shoppingCart.length > 0) {
+        const orderCodes = new Set((order.items || []).map(i => String(i.code)));
+        const overlap = shoppingCart.some(i => orderCodes.has(String(i.code)));
+        const choice = await Swal.fire({
+            icon: 'question',
+            title: `Kiosk Order #${escapeHtml(String(order.orderNo || ''))}`,
+            html: overlap
+                ? 'May laman na ang cart at may magkaparehong item. I-clear ang cart at i-load ang kiosk order?'
+                : 'May laman na ang cart. Idagdag ang mga item ng kiosk order, o i-clear muna ang cart?',
+            showCancelButton: true,
+            showDenyButton: !overlap,
+            confirmButtonText: overlap ? 'I-clear at i-load' : 'Idagdag sa cart',
+            denyButtonText: 'I-clear at i-load',
+            cancelButtonText: 'Kanselahin'
+        });
+        if (choice.isDismissed) return false;
+        replaceCart = overlap ? !!choice.isConfirmed : !!choice.isDenied;
+    }
+    await refreshProductsForScan(); // pinakabagong presyo at stock (kung pumalya, gamit ang nasa memory)
+    ensureScanProductsLoaded();
+    const groups = new Map();
+    (order.items || []).forEach(it => {
+        const code = String(it.code);
+        if (!groups.has(code)) groups.set(code, []);
+        groups.get(code).push(it);
+    });
+    const lines = [];
+    const problems = [];
+    groups.forEach((its, code) => {
+        const label = its[0].name || code;
+        const product = Array.isArray(globalProducts) ? globalProducts.find(p => String(p.code) === code) : null;
+        if (!product) { problems.push(`${escapeHtml(label)}: wala na sa product list — hindi nai-load`); return; }
+        let unit = its[0].unit || null;
+        const sameUnit = its.every(x => (x.unit || null) === unit);
+        let qty;
+        if (sameUnit && (!unit || findProductUom(product, unit))) {
+            qty = qty3(its.reduce((a, x) => a + (parseFloat(x.qty) || 0), 0));
+        } else {
+            // Iisang unit lang bawat product sa isang POS sale: pagsamahin sa base unit.
+            unit = null;
+            qty = qty3(its.reduce((a, x) => a + (parseFloat(x.baseQty != null ? x.baseQty : x.qty) || 0), 0));
+            problems.push(`${escapeHtml(label)}: pinagsama sa base unit (iisang unit lang bawat product sa isang sale)`);
+        }
+        if (!(qty > 0)) return;
+        if (!productAllowsDecimal(product) && Math.abs(qty - Math.round(qty)) > 1e-9) {
+            problems.push(`${escapeHtml(label)}: hindi pwede ang decimal na dami (${formatQty(qty)}) — hindi nai-load`);
+            return;
+        }
+        const line = { ...product, quantity: qty, unit, factor: 1, priceLevel: null, kioskOrderId: id, kioskOrderNo: String(order.orderNo || '') };
+        applyCartLinePricing(line);
+        const maxQty = getMaxCartQtyForLine(line, product);
+        if (maxQty + 1e-9 < qty) {
+            if (maxQty > 0) {
+                problems.push(`${escapeHtml(label)}: kulang ang stock — ${formatQty(maxQty)} lang ang nai-load sa hiniling na ${formatQty(qty)}`);
+                line.quantity = maxQty;
+                applyCartLinePricing(line);
+            } else {
+                problems.push(`${escapeHtml(label)}: walang stock — hindi nai-load`);
+                return;
+            }
+        }
+        lines.push(line);
+    });
+    if (!lines.length) {
+        Swal.fire({ icon: 'error', title: 'Walang ma-load', html: problems.length ? problems.map(x => `• ${x}`).join('<br>') : 'Walang valid na item sa kiosk order na ito.' });
+        return false;
+    }
+    const posTotal = money2(lines.reduce((a, l) => a + money2(l.price * l.quantity), 0));
+    const kioskTotal = money2(order.total);
+    const pricedOptions = (order.items || []).some(i => (parseFloat(i.optionsTotal) || 0) > 0);
+    const totalDiffers = Math.abs(posTotal - kioskTotal) > 0.005;
+    if (problems.length || totalDiffers || pricedOptions) {
+        const parts = [];
+        parts.push(`Total sa kiosk: <b>₱${kioskTotal.toFixed(2)}</b><br>Total sa POS ngayon: <b>₱${posTotal.toFixed(2)}</b>`);
+        if (totalDiffers) {
+            parts.push(pricedOptions
+                ? 'May bayad na add-on/option sa kiosk order na hindi nasasama sa presyo ng POS (presyo ng product at unit lang ang kinukuwenta ng POS). Idagdag nang hiwalay kung kailangan.'
+                : 'Iba na ang presyo sa POS kumpara noong inorder sa kiosk. Ang presyo ng POS ang masisingil.');
+        }
+        if (problems.length) parts.push(problems.map(x => `• ${x}`).join('<br>'));
+        const ok = await Swal.fire({
+            icon: 'warning',
+            title: `Kiosk Order #${escapeHtml(String(order.orderNo || ''))}`,
+            html: `<div style="text-align:left">${parts.join('<br><br>')}</div>`,
+            showCancelButton: true,
+            confirmButtonText: 'I-load sa cart',
+            cancelButtonText: 'Kanselahin'
+        });
+        if (!ok.isConfirmed) return false;
+    }
+    if (replaceCart) {
+        shoppingCart = [];
+        renderCartRows(); // nire-reset din nito ang discount/customer ng lumang cart
+    }
+    lines.forEach(l => shoppingCart.push(l));
+    renderCartRows();
+    if (!problems.length && !totalDiffers && !pricedOptions) {
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: `Kiosk order #${escapeHtml(String(order.orderNo || ''))} na-load sa cart`, showConfirmButton: false, timer: 2200 });
+    }
+    return true;
+}
 async function handleScannedBarcode(scannedCode, skipRetailVerification = false) {
     const now = Date.now();
     if (scannedCode === lastScannedCode && (now - lastScannedTime < 1000)) {
@@ -28583,6 +28744,12 @@ async function handleScannedBarcode(scannedCode, skipRetailVerification = false)
     }
     lastScannedCode = scannedCode;
     lastScannedTime = now;
+    if (isKioskOrderCode(scannedCode)) {
+        cancelPendingLiveRetailScan();
+        const kioskLoaded = await loadKioskOrderIntoCart(scannedCode, true);
+        if (kioskLoaded) closeQRScanner();
+        return;
+    }
     const scanMatch = await resolveScanMatchFast(scannedCode);
     const product = scanMatch && scanMatch.product;
     if (product) {
@@ -30749,6 +30916,11 @@ async function handleHardwareScanTerminal(scannedCode) {
     if (terminalSearchInput) {
         terminalSearchInput.value ='';
         if (typeof renderTerminalProducts ==='function') renderTerminalProducts();
+    }
+    if (isKioskOrderCode(cleanCode)) {
+        if (typeof playScanBeep === 'function') playScanBeep();
+        loadKioskOrderIntoCart(cleanCode);
+        return;
     }
     const now = Date.now();
     if (cleanCode === lastScannedCode && (now - lastScannedTime < 1000)) {

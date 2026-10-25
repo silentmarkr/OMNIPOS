@@ -14761,6 +14761,8 @@ app.get('/api/health', (req, res) => {
 app.post('/api/transactions', requirePermission('terminal'), async (req, res) => {
     await transactionsMutexRunExclusive(() => processTransaction(req, res));
 });
+// Self-Order Kiosk hook ({ checkPayable, markPaid }) — itinatakda kapag na-register ang kiosk.js (tingnan sa ibaba ng file).
+let kioskApi = null;
 // Sale-clock rules. The sale date (isoDate) feeds the BIR e-Journal/Sales Book, period reports and the AI insights, so the
 // client may no longer pick any value it likes: an online sale must be within +/-10 minutes of the server clock, and an
 // offline-queued sale (offlineSync) must be in the past and not older than 30 days. Anything else falls back to the
@@ -14863,6 +14865,31 @@ async function processTransaction(req, res) {
                 ? 'This short transaction reference is already used by a different sale. A new reference is required; the sale was not created.'
                 : 'A transaction with this ID already exists. The duplicate sale was not created.'
         });
+    }
+    // Kiosk order na ini-scan sa Terminal: ang order id ay galing sa client kaya sine-check muna dito (bukas pa ba, wala pang txId).
+    // Ang "kioskOrderNo/kioskOrderConflict" ay server-owned. Ang aktwal na pag-tag ng order na bayad na ay pagkatapos ma-commit ang sale.
+    delete transaction.kioskOrderNo;
+    delete transaction.kioskOrderConflict;
+    let kioskOrderToMark = null;
+    if (transaction.kioskOrderId !== undefined && transaction.kioskOrderId !== null && String(transaction.kioskOrderId).trim() !== '') {
+        const kioskId = String(transaction.kioskOrderId).trim().slice(0, 40);
+        transaction.kioskOrderId = kioskId;
+        if (kioskApi && typeof kioskApi.checkPayable === 'function') {
+            const kchk = kioskApi.checkPayable(kioskId);
+            if (kchk.ok) {
+                kioskOrderToMark = kchk.order.id;
+                transaction.kioskOrderNo = kchk.order.orderNo;
+            } else if (isOfflineSync) {
+                // Tapos na ang benta sa harap ng customer (offline); huwag tanggihan. I-flag lang para ma-review.
+                transaction.kioskOrderConflict = kchk.code;
+            } else {
+                return res.status(409).json({ success: false, code: 'KIOSK_ORDER_UNAVAILABLE', kioskCode: kchk.code, message: kchk.message + ' Walang nagawang sale. Alisin ang mga item ng kiosk order sa cart (i-clear ang cart) at subukan ulit.' });
+            }
+        } else {
+            delete transaction.kioskOrderId;
+        }
+    } else {
+        delete transaction.kioskOrderId;
     }
     let products = readDataLite(FILE_PRODUCTS);
     let customers = readData(FILE_CUSTOMERS, []);
@@ -15419,6 +15446,13 @@ async function processTransaction(req, res) {
             }
         }
         return res.status(500).json({ success: false, message: 'The sale could not be saved completely. No permanent change should remain; please try again.' });
+    }
+    if (kioskOrderToMark && kioskApi && typeof kioskApi.markPaid === 'function') {
+        try {
+            kioskApi.markPaid(kioskOrderToMark, { txId: transaction.id, method: transaction.method || transaction.payment_method || '', total: transaction.total, cashier: transaction.cashier });
+        } catch (kioskErr) {
+            console.error('Kiosk order could not be tagged as paid (the sale itself was saved):', kioskErr);
+        }
     }
     logAction(username, `Processed sale transaction: ${transaction.id}`
         + (discountAuthorizedBy ? ` (Manual discount ₱${manualDiscountTotal.toFixed(2)} authorized by: ${discountAuthorizedBy})` : '')
@@ -23178,7 +23212,8 @@ registerMarketplace({
     logAction, transactionsMutexRunExclusive, rateLimit, FILE_PRODUCTS, isDemoActive
 });
 // Self-Order Kiosk (OMNIKiosk app) — tingnan ang kiosk.js
-require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL, getKioskFeatureStatus });
+// Ang return value ({ checkPayable, markPaid }) ay ginagamit ng processTransaction (POS sale) para sa kiosk order na ini-scan sa Terminal.
+kioskApi = require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL, getKioskFeatureStatus });
 const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
 async function startOmniposServer() {
     await restoreFromCloudIfNeeded();

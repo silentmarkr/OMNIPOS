@@ -9,6 +9,7 @@
 //   POST /api/kiosk/orders           tumanggap ng order mula sa kiosk (presyo/stock ay RE-COMPUTE ng server, hindi pinagkakatiwalaan ang client)
 //   GET  /api/kiosk/queue            "Now preparing / Ready" board (walang sensitibong data)
 //   GET  /api/kiosk/orders           para sa counter/kitchen screen
+//   GET  /api/kiosk/orders/:id       isang order (para sa POS Terminal kapag ini-scan ang QR ng kiosk order)
 //   POST /api/kiosk/orders/:id/status  new -> preparing -> ready -> done | cancelled
 //   GET  /api/kiosk/summary          benta ng kiosk ngayon + top items (para sa owner)
 //   GET/PUT /api/kiosk/config        i-customize ng Admin ang kiosk (business type, options/add-ons, hidden items, atbp.)
@@ -23,9 +24,13 @@
 // expired na kasama ang grace period) ay 402 { featureLocked:true } ang sagot, kaya hindi ito ma-bypass sa kiosk app/counter page.
 // Fail-closed: kung hindi makuha ang lisensya (lumang hook sa server.js), naka-lock din.
 //
-// HINDI ito gumagawa ng POS "transaction" (BIR invoice/OR number, shift, cashier). Ang order ay "pay at counter":
-// ang cashier pa rin ang magri-ring up sa POS, kaya buo ang BIR/AGT/audit trail ng POS. Ang stock ay "reserved" lang
-// (binabawas sa available habang bukas pa ang order) at hindi dine-deduct dito.
+// HINDI ito mismo ang gumagawa ng POS "transaction" (BIR invoice/OR number, shift, cashier). Ang order ay "pay at counter":
+// ang QR ng order number (hal. K20261025-003) ay ini-scan ng cashier sa POS Terminal; ang POS ang naglo-load ng mga item sa cart
+// (GET /api/kiosk/orders/:id) at ang NORMAL na POS sale (processTransaction sa server.js) ang bumabawas sa inventory at gumagawa
+// ng BIR invoice, kaya buo pa rin ang audit trail. Pagkatapos ma-save ang sale, tinatawag ng server.js ang markPaid() (return value
+// ng module na ito) para ma-tag ang order ng transaction id (txId) at hindi na ito ma-scan ulit. Hangga't wala pang txId, ang stock
+// ay "reserved" lang (binabawas sa available habang bukas pa ang order); kapag may txId na, ang POS sale na ang bumawas ng tunay
+// na stock kaya hindi na ito binibilang na reserved (para hindi madoble).
 
 'use strict';
 
@@ -295,9 +300,38 @@ module.exports = function registerKiosk(deps) {
         const r = {};
         orders.forEach(o => {
             if (!OPEN_STATUSES.has(o.status)) return;
+            if (o.txId) return; // bayad na sa POS: ang sale na ang bumawas ng tunay na stock, huwag nang bilangin ulit bilang reserved
             (o.items || []).forEach(it => { r[it.code] = (r[it.code] || 0) + (Number(it.baseQty != null ? it.baseQty : it.qty) || 0); });
         });
         return r;
+    }
+
+    // Pwede pa bang i-ring up sa POS ang order na ito? (bukas pa, hindi cancelled, at wala pang txId)
+    function checkPayable(id) {
+        const key = String(id == null ? '' : id).trim().toUpperCase();
+        const o = key ? getOrders().find(x => String(x.id).toUpperCase() === key) : null;
+        if (!o) return { ok: false, code: 'NOT_FOUND', message: 'Hindi nahanap ang kiosk order na ito.' };
+        if (o.txId) return { ok: false, code: 'ALREADY_PAID', order: o, message: `Bayad na ang kiosk order #${o.orderNo} (transaction ${o.txId}).` };
+        if (o.status === 'cancelled') return { ok: false, code: 'CANCELLED', order: o, message: `Na-cancel ang kiosk order #${o.orderNo}.` };
+        if (!OPEN_STATUSES.has(o.status)) return { ok: false, code: 'CLOSED', order: o, message: `Sarado na ang kiosk order #${o.orderNo} (${o.status}).` };
+        return { ok: true, order: o };
+    }
+    // Tinatawag ng server.js PAGKATAPOS ma-save ang POS sale. Hindi binabago ang status (tuloy pa rin ang Preparing/Ready/Done ng kusina).
+    function markPaid(id, info) {
+        const key = String(id == null ? '' : id).trim().toUpperCase();
+        const orders = getOrders();
+        const o = key ? orders.find(x => String(x.id).toUpperCase() === key) : null;
+        if (!o) return { ok: false, code: 'NOT_FOUND' };
+        if (o.txId) return { ok: false, code: 'ALREADY_PAID', txId: o.txId };
+        info = info || {};
+        o.txId = String(info.txId || '').slice(0, 80);
+        o.paidAt = new Date().toISOString();
+        o.paidBy = String(info.cashier || '').slice(0, 60);
+        o.paidMethod = String(info.method || '').slice(0, 30);
+        o.paidTotal = round2(info.total);
+        writeData(FILE_ORDERS, orders);
+        try { logAction(o.paidBy || 'system', `Kiosk order ${o.id} paid via POS transaction ${o.txId}`); } catch (e) { /* ignore */ }
+        return { ok: true, order: o };
     }
 
     function storeInfo() {
@@ -541,6 +575,14 @@ module.exports = function registerKiosk(deps) {
         res.json({ success: true, orders: list.slice(-300) });
     });
 
+    // Isang order (para sa POS Terminal: ini-scan ng cashier ang QR sa kiosk). Laging 200 kung nahanap; ang "payable" ang nagsasabi kung pwede pang i-ring up.
+    app.get('/api/kiosk/orders/:id', gate, (req, res) => {
+        noStore(res);
+        const chk = checkPayable(req.params.id);
+        if (chk.code === 'NOT_FOUND') return res.status(404).json({ success: false, code: chk.code, message: chk.message });
+        res.json({ success: true, order: chk.order, payable: chk.ok, code: chk.ok ? null : chk.code, message: chk.ok ? '' : chk.message });
+    });
+
     app.post('/api/kiosk/orders/:id/status', gate, (req, res) => {
         const next = String((req.body || {}).status || '');
         if (!ALL_STATUSES.has(next)) return res.status(400).json({ success: false, message: 'Maling status.' });
@@ -548,6 +590,7 @@ module.exports = function registerKiosk(deps) {
         const o = orders.find(x => x.id === req.params.id);
         if (!o) return res.status(404).json({ success: false, message: 'Hindi nahanap ang order.' });
         if (!OPEN_STATUSES.has(o.status) && !isAdmin(req)) return res.status(409).json({ success: false, message: 'Sarado na ang order na ito.' });
+        if (next === 'cancelled' && o.txId) return res.status(409).json({ success: false, message: `Bayad na ang order na ito (transaction ${o.txId}). I-void o i-refund ang transaction sa POS sa halip na i-cancel dito.` });
         o.status = next;
         o.statusAt = new Date().toISOString();
         o.statusBy = req.authUser && req.authUser.username;
@@ -605,6 +648,9 @@ module.exports = function registerKiosk(deps) {
         const chk = await checkDevPin(deps, (req.body || {}).devPin);
         res.status(chk.ok ? 200 : 403).json({ success: chk.ok, message: chk.message || '' });
     });
+
+    // Para sa server.js (POS sale): tingnan kung pwede pang bayaran ang order at i-tag ito kapag na-save na ang sale.
+    return { checkPayable, markPaid };
 };
 module.exports.sanitizeConfig = sanitizeConfig;
 module.exports.BIZ_MODES = BIZ_MODES;
