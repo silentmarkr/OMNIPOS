@@ -24,42 +24,98 @@ label{display:block;font-weight:700;margin:10px 0 4px}input[type=text],input[typ
 .plist label{display:inline-flex;margin:0;font-weight:500;gap:4px;align-items:center}
 .hide{display:none}.empty{text-align:center;color:var(--m);padding:40px}
 pre{white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:8px;font-size:.85em}
+/* License lock (Self-Order Kiosk subscription): while locked, only the lock box is shown */
+#lock{display:none}.locked #lock{display:block}
+.locked #v1,.locked #v2,.locked #v3,.locked #t1,.locked #t2,.locked #t3{display:none!important}
+#grace{padding:10px 14px;background:#fff3cd;border-bottom:1px solid #f0d98a;font-weight:600}
+a.btnlink{display:inline-block;text-decoration:none;border-radius:10px;padding:10px 14px;background:var(--b);color:#fff;font-weight:700}
 </style></head><body>
 <div id="login" style="max-width:340px;margin:12vh auto" class="box"><h2>Kiosk Counter</h2><label>Username</label><input type="text" id="u" autocapitalize="off"><label>Password</label><input type="password" id="p"><p id="lm" style="color:#d33"></p><button id="lb" style="width:100%">Login</button></div>
 <div id="app" class="hide">
 <header><b>🛎 Kiosk Counter</b><button id="t1" class="on">Orders</button><button id="t2" class="g">Summary</button><button id="t3" class="g">Settings</button><span style="flex:1"></span><span id="st" style="color:#7a736c"></span><button class="g" id="lo">Logout</button></header>
+<div id="grace" class="hide"></div>
 <main>
+ <section id="lock"></section>
  <section id="v1"><div class="cards" id="cards"></div></section>
- <section id="v2" class="hide"><div class="box"><div class="stat" id="stat"></div></div><div class="box"><h3>Top items ngayon</h3><div id="top"></div></div></section>
+ <section id="v2" class="hide"><div class="box"><div class="stat" id="stat"></div></div><div class="box"><h3 id="toph">Top items ngayon</h3><div id="top"></div></div></section>
  <section id="v3" class="hide"></section>
 </main></div>
 <script>
 const $=s=>document.querySelector(s);const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let TOKEN=sessionStorage.getItem('kc_tok')||'',ME=null,tab=1,orders=[],lastIds='',CFGX=null,PRODS=[];
+/* Wording per business type: a service business (parlor/laundry/repair) works with bookings and a schedule, not a kitchen. */
+const LBL={
+ def:{orders:'Orders',prep:'🍳 Preparing',ready:'✅ Ready',done:'💰 Paid / Done',empty:'Walang bukas na order. Maghihintay ng bagong order…',sum:'Orders ngayon',sales:'Benta (kiosk)',top:'Top items ngayon',none:'Wala pang order.'},
+ service:{orders:'Bookings',prep:'🛠 In progress',ready:'✅ Ready / Done',done:'💰 Paid / Done',empty:'Walang bukas na booking. Maghihintay ng bagong booking…',sum:'Bookings ngayon',sales:'Benta (kiosk)',top:'Top services ngayon',none:'Wala pang booking.'}
+};
+const FIT={
+ general:'Pangkalahatan: self-order at price check.',
+ restaurant:'Pinakaangkop: self-order, options/add-ons, upsell, Order Status board.',
+ minimart:'Angkop: Price Check at pick-up order; hindi kailangan ang kusina/board.',
+ sari:'Angkop: Price Check lang (i-off ang self-order).',
+ service:'Angkop: listahan ng serbisyo at presyo, booking/check-in, at Schedule Status (ongoing / ready). Hindi ito stock-based na self-checkout.',
+ pharmacy:'Angkop: Price Check at pick-up order (may paalala sa reseta).',
+ hardware:'Angkop: Price Check, order/quote, pick-up o delivery.'
+};
+let BIZC='general';
+const L=()=>LBL[BIZC==='service'?'service':'def'];
+const apptOf=o=>{const m=/Appt:(\d{4}-\d\d-\d\d)(?: (\d\d:\d\d))?/.exec((o&&o.note)||'');return m?{d:m[1],t:m[2]||'',k:m[1]+' '+(m[2]||'00:00')}:null};
+let TOKEN=sessionStorage.getItem('kc_tok')||'',ME=null,tab=1,orders=[],lastIds='',CFGX=null,PRODS=[],LOCKED=false,LIC=null;
 const peso=n=>'₱'+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2});
-async function api(m,p,b){const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN},body:b?JSON.stringify(b):undefined});if(r.status===401){logout();throw new Error('401')}return r.json()}
+async function api(m,p,b){const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN},body:b?JSON.stringify(b):undefined});if(r.status===401){logout();throw new Error('401')}
+ const j=await r.json();if(r.status===402&&j&&j.featureLocked){showLock(j);throw new Error('LOCKED')}return j}
+window.addEventListener('unhandledrejection',e=>{if(e.reason&&e.reason.message==='LOCKED')e.preventDefault()});
+/* ---------- license (Self-Order Kiosk subscription) ---------- */
+const isAdminUser=()=>!!ME&&String(ME.role||'').toLowerCase()==='admin';
+function renderLock(j){
+ j=j||LIC||{};const pr=j.subscriptionPrice;
+ $('#lock').innerHTML=`<div class="box" style="max-width:640px;margin:6vh auto;text-align:center"><div style="font-size:3em">🔒</div><h2 style="margin:6px 0">Self-Order Kiosk is not activated</h2>
+  <p style="color:#7a736c">${j.hookOutdated?esc(j.message||''):'This store has no active Self-Order Kiosk subscription (or it has expired). The kiosk app and this Counter screen are paused and no new orders are accepted. Your existing orders and settings are kept and come back after activation.'}</p>
+  ${pr&&typeof pr.monthly==='number'?`<p><b>Plans:</b> ${peso(pr.monthly).replace('.00','')} / month or ${peso(pr.yearly).replace('.00','')} / year</p>`:''}
+  <p>${isAdminUser()?'Open OMNIPOS and click <b>Kiosk Counter</b> (🔒) in the sidebar to see the plans and subscribe.':'Please ask the store owner/admin to activate it in OMNIPOS.'}</p>
+  <p><a class="btnlink" href="/" target="_blank" rel="noopener">Open OMNIPOS</a> <button class="g" id="lchk">Check again</button></p><div id="lmsg" style="color:#7a736c;min-height:1.4em"></div></div>`;
+ $('#lchk').onclick=async()=>{$('#lmsg').textContent='Checking…';await checkLicense();if(LOCKED)$('#lmsg').textContent='Still not activated.'};
+}
+function showLock(j){LOCKED=true;$('#app').classList.add('locked');$('#grace').classList.add('hide');renderLock(j)}
+function hideLock(){if(!LOCKED)return;LOCKED=false;$('#app').classList.remove('locked');lastIds='';poll();if(tab===2)loadSummary().catch(()=>{});if(tab===3)loadSettings().catch(()=>{})}
+function renderGrace(j){
+ const g=$('#grace');
+ if(j&&j.inGracePeriod){g.textContent='⚠ Your Self-Order Kiosk subscription has expired. It keeps working until '+(j.graceEndsAt?new Date(j.graceEndsAt).toLocaleDateString():'the end of the grace period')+'. Renew it in OMNIPOS to avoid interruption.';g.classList.remove('hide')}
+ else if(j&&j.demo){g.textContent='ℹ Demo Mode: the Self-Order Kiosk is unlocked temporarily.';g.classList.remove('hide')}
+ else g.classList.add('hide');
+}
+async function checkLicense(){
+ try{const j=await api('GET','/api/kiosk/status');LIC=j;
+  if(j&&j.unlocked===true){renderGrace(j);hideLock()}else showLock(j)}
+ catch(e){/* offline or already handled (401 / LOCKED) */}
+ return LIC;
+}
 function logout(){TOKEN='';sessionStorage.removeItem('kc_tok');$('#app').classList.add('hide');$('#login').classList.remove('hide')}
 $('#lo').onclick=logout;
 $('#lb').onclick=async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('#u').value,password:$('#p').value})});const j=await r.json().catch(()=>({}));
  if(j.token){TOKEN=j.token;ME=j.user;sessionStorage.setItem('kc_tok',TOKEN);start()}else $('#lm').textContent=j.message||'Hindi nakapag-login (kung may OTP ang account, gumamit ng ibang user).'};
-function show(n){tab=n;[1,2,3].forEach(i=>{$('#v'+i).classList.toggle('hide',i!==n);$('#t'+i).className=i===n?'on':'g'});if(n===2)loadSummary();if(n===3)loadSettings()}
+function applyLabels(){const l=L();$('#t1').textContent=l.orders;lastIds='';if(tab===1)renderOrders()}
+async function loadBiz(){try{const c=await api('GET','/api/kiosk/config');BIZC=(c.config&&c.config.businessType)||'general';applyLabels()}catch(e){/* locked or offline */}}
+function show(n){tab=n;[1,2,3].forEach(i=>{$('#v'+i).classList.toggle('hide',i!==n);$('#t'+i).className=i===n?'on':'g'});if(n===2)loadSummary().catch(()=>{});if(n===3)loadSettings().catch(()=>{})}
 [1,2,3].forEach(i=>$('#t'+i).onclick=()=>show(i));
 function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.connect(a.destination);o.frequency.value=880;o.start();setTimeout(()=>o.stop(),180)}catch(e){}}
-async function poll(){if(!TOKEN||tab!==1)return;try{const j=await api('GET','/api/kiosk/orders?status=open');orders=j.orders||[];const ids=orders.map(o=>o.id+o.status).join();
+async function poll(){if(!TOKEN||tab!==1||LOCKED)return;try{const j=await api('GET','/api/kiosk/orders?status=open');orders=j.orders||[];const ids=orders.map(o=>o.id+o.status).join();
   if(ids!==lastIds){const newer=orders.filter(o=>o.status==='new').length;if(lastIds!==''&&newer>(lastIds.match(/new/g)||[]).length)beep();lastIds=ids;renderOrders()}
-  $('#st').textContent='● live';}catch(e){$('#st').textContent='offline'}}
+  $('#st').textContent='● live';}catch(e){if(!e||e.message!=='LOCKED')$('#st').textContent='offline'}}
 let DEVPIN='';
 function renderOrders(){
+ if(BIZC==='service')orders=orders.slice().sort((a,b)=>{const x=apptOf(a),y=apptOf(b);if(x&&y)return x.k<y.k?-1:x.k>y.k?1:0;if(x)return -1;if(y)return 1;return 0});
+ const l=L();
  $('#cards').innerHTML=orders.length?orders.map(o=>`<div class="o ${o.status}"><h3><span>#${esc(o.orderNo)}</span><span>${peso(o.total)}</span></h3>
   <small>${esc(o.orderType)}${o.customerName?' · '+esc(o.customerName):''}${o.table?' · Table '+esc(o.table):''}${o.phone?' · '+esc(o.phone):''} · ${new Date(o.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · <b>${esc(o.status)}</b></small>
+  ${apptOf(o)?`<div style="margin:6px 0;font-weight:700;color:#b45309">📅 ${esc(apptOf(o).d)}${apptOf(o).t?' · '+esc(apptOf(o).t):''}</div>`:''}
   <ul>${o.items.map(i=>`<li><b>${i.qty}×</b> ${esc(i.name)}${i.unit?' ('+esc(i.unit)+')':''}${i.options.length?' <small>['+esc(i.options.map(x=>x.name).join(', '))+']</small>':''}${i.note?' <small>📝 '+esc(i.note)+'</small>':''}</li>`).join('')}</ul>
   ${o.note?`<div>📝 ${esc(o.note)}</div>`:''}
-  <div class="acts">${o.status==='new'?`<button data-a="preparing" data-id="${o.id}">🍳 Preparing</button>`:''}${o.status!=='ready'?`<button class="k" data-a="ready" data-id="${o.id}">✅ Ready</button>`:''}
-  <button class="g" data-a="done" data-id="${o.id}">💰 Paid / Done</button><button class="r" data-a="cancelled" data-id="${o.id}">✖</button></div></div>`).join(''):'<div class="empty">Walang bukas na order. Maghihintay ng bagong order…</div>';
+  <div class="acts">${o.status==='new'?`<button data-a="preparing" data-id="${o.id}">${l.prep}</button>`:''}${o.status!=='ready'?`<button class="k" data-a="ready" data-id="${o.id}">${l.ready}</button>`:''}
+  <button class="g" data-a="done" data-id="${o.id}">${l.done}</button><button class="r" data-a="cancelled" data-id="${o.id}">✖</button></div></div>`).join(''):`<div class="empty">${l.empty}</div>`;
  document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{if(b.dataset.a==='cancelled'&&!confirm('I-cancel ang order?'))return;await api('POST','/api/kiosk/orders/'+b.dataset.id+'/status',{status:b.dataset.a});lastIds='';poll()});
 }
-async function loadSummary(){const j=await api('GET','/api/kiosk/summary');$('#stat').innerHTML=`<div><small>Orders ngayon</small><b>${j.orders}</b></div><div><small>Benta (kiosk)</small><b>${peso(j.sales)}</b></div><div><small>Bukas pa</small><b>${j.open}</b></div><div><small>Cancelled</small><b>${j.cancelled}</b></div>`;
- $('#top').innerHTML=j.top.length?j.top.map(t=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee"><span>${esc(t.name)}</span><span>${t.qty} pcs · ${peso(t.sales)}</span></div>`).join(''):'<div class="empty">Wala pang order.</div>'}
+async function loadSummary(){const j=await api('GET','/api/kiosk/summary');$('#stat').innerHTML=`<div><small>${L().sum}</small><b>${j.orders}</b></div><div><small>Benta (kiosk)</small><b>${peso(j.sales)}</b></div><div><small>Bukas pa</small><b>${j.open}</b></div><div><small>Cancelled</small><b>${j.cancelled}</b></div>`;
+ $('#top').innerHTML=j.top.length?j.top.map(t=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee"><span>${esc(t.name)}</span><span>${t.qty} pcs · ${peso(t.sales)}</span></div>`).join(''):`<div class="empty">${L().none}</div>`;$('#toph').textContent=L().top}
 function optsToText(opts){return Object.keys(opts||{}).map(code=>{const p=PRODS.find(x=>String(x.code)===code);return '# '+code+' '+(p?p.name:'')+'\n'+opts[code].map(g=>`${g.name}${g.required?'*':''}${g.type==='multi'?' (multi)':''}: ${g.choices.map(c=>c.name+'='+c.price).join(', ')}`).join('\n')}).join('\n\n')}
 function textToOpts(txt){const out={};let cur=null;txt.split('\n').forEach(line=>{line=line.trim();if(!line)return;if(line[0]==='#'){cur=line.slice(1).trim().split(/\s+/)[0];out[cur]=[];return}if(!cur)return;
  const i=line.indexOf(':');if(i<0)return;let head=line.slice(0,i).trim(),type='single',req=false;if(/\(multi\)/i.test(head)){type='multi';head=head.replace(/\(multi\)/i,'').trim()}if(head.endsWith('*')){req=true;head=head.slice(0,-1).trim()}
@@ -72,7 +128,7 @@ async function loadSettings(){
  const pl=(k)=>PRODS.map(x=>`<div><span>${esc(x.name)} <small style="color:#7a736c">${esc(x.code)}</small></span><label><input type="checkbox" data-k="${k}" value="${esc(x.code)}" ${(CFGX[k]||[]).includes(String(x.code))?'checked':''}> </label></div>`).join('');
  $('#v3').innerHTML=(admin?'':'<div class="box" style="background:#fff3cd">Admin lang ang makaka-save ng settings.</div>')+`
  <div class="box"><h3>Negosyo</h3><div class="row"><div><label>Pangalan ng store</label><input type="text" id="c_storeName" value="${esc(CFGX.storeName)}"></div><div><label>Tagline</label><input type="text" id="c_tagline" value="${esc(CFGX.tagline)}"></div></div>
- <div class="row"><div><label>Uri ng negosyo (nagtatakda ng buttons, order types at checkout rules)</label><select id="c_businessType" ${DEVPIN?'':'disabled'}>${[['general','General / Kahit ano'],['restaurant','Restaurant / Kainan (Dine-in, Table)'],['minimart','Mini-mart / Grocery'],['sari','Sari-sari store'],['service','Serbisyo (Parlor / Repair / Laundry)'],['pharmacy','Parmasya'],['hardware','Hardware / Wholesale']].map(x=>`<option value="${x[0]}" ${CFGX.businessType===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select> <button type="button" id="dvu" style="margin-top:6px">${DEVPIN?'🔓 Naka-unlock (Developer)':'🔒 I-unlock (Developer PIN)'}</button><div style="color:#7a736c;font-size:.85em">Developer lang ang makakapagpalit ng uri ng negosyo.</div></div>
+ <div class="row"><div><label>Uri ng negosyo (nagtatakda ng buttons, order types at checkout rules)</label><select id="c_businessType" ${DEVPIN?'':'disabled'}>${[['general','General / Kahit ano'],['restaurant','Restaurant / Kainan (Dine-in, Table)'],['minimart','Mini-mart / Grocery'],['sari','Sari-sari store'],['service','Serbisyo (Parlor / Repair / Laundry)'],['pharmacy','Parmasya'],['hardware','Hardware / Wholesale']].map(x=>`<option value="${x[0]}" ${CFGX.businessType===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select> <button type="button" id="dvu" style="margin-top:6px">${DEVPIN?'🔓 Naka-unlock (Developer)':'🔒 I-unlock (Developer PIN)'}</button><div style="color:#7a736c;font-size:.85em">Developer lang ang makakapagpalit ng uri ng negosyo.</div><div id="fit" style="margin-top:6px;font-size:.9em;font-weight:600">${esc(FIT[CFGX.businessType]||FIT.general)}</div></div>
  <div><label>Kulay ng brand</label><input type="text" id="c_brandColor" value="${esc(CFGX.brandColor)}"></div><div><label>Wika</label><select id="c_language"><option value="tl" ${CFGX.language==='tl'?'selected':''}>Tagalog</option><option value="en" ${CFGX.language==='en'?'selected':''}>English</option></select></div></div></div>
  <div class="box"><h3>Mga mode sa kiosk</h3><label class="chk"><input type="checkbox" id="m_order" ${m.order?'checked':''}> Self-order</label><label class="chk"><input type="checkbox" id="m_priceCheck" ${m.priceCheck?'checked':''}> Price check / scan</label><label class="chk"><input type="checkbox" id="m_queueBoard" ${m.queueBoard?'checked':''}> Order status board (para sa TV)</label>
  <p style="color:#7a736c;margin:4px 0 0">Sari-sari/mini-mart na ayaw ng self-order? I-off ang Self-order at i-on ang Price check.</p></div>
@@ -86,16 +142,17 @@ async function loadSettings(){
  $('#sv').onclick=save;
  $('#dvu').onclick=async()=>{if(DEVPIN)return;const pin=prompt('Developer PIN');if(!pin)return;const r=await api('POST','/api/kiosk/dev-verify',{devPin:pin});if(r.success){DEVPIN=pin;$('#c_businessType').disabled=false;$('#dvu').textContent='🔓 Naka-unlock (Developer)'}else alert(r.message||'Maling Developer PIN')};
  const DEFT={restaurant:'Dine-in, Take-out',minimart:'Pick-up',sari:'Walk-in',service:'Walk-in',pharmacy:'Pick-up',hardware:'Pick-up, Delivery',general:'Walk-in'};
- $('#c_businessType').onchange=e=>{$('#c_orderTypes').value=DEFT[e.target.value]||'Walk-in';const MD={restaurant:[1,0,1],minimart:[1,1,0],sari:[0,1,0],service:[1,0,1],pharmacy:[1,1,0],hardware:[1,1,0],general:[1,1,1]}[e.target.value]||[1,1,1];['m_order','m_priceCheck','m_queueBoard'].forEach((id,i)=>{$('#'+id).checked=!!MD[i]});const t=$('#c_askTable');if(t&&e.target.value!=='restaurant'){t.checked=false;t.parentNode.style.display='none'}}}
+ $('#c_businessType').onchange=e=>{$('#fit').textContent=FIT[e.target.value]||FIT.general;$('#c_orderTypes').value=DEFT[e.target.value]||'Walk-in';const MD={restaurant:[1,0,1],minimart:[1,1,0],sari:[0,1,0],service:[1,1,1],pharmacy:[1,1,0],hardware:[1,1,0],general:[1,1,1]}[e.target.value]||[1,1,1];['m_order','m_priceCheck','m_queueBoard'].forEach((id,i)=>{$('#'+id).checked=!!MD[i]});const t=$('#c_askTable');if(t&&e.target.value!=='restaurant'){t.checked=false;t.parentNode.style.display='none'}}}
 async function save(){
  const g=id=>$('#'+id);const lst=k=>[...document.querySelectorAll(`[data-k="${k}"]:checked`)].map(x=>x.value);
  const cfg={devPin:undefined,businessType:g('c_businessType').value,storeName:g('c_storeName').value,tagline:g('c_tagline').value,brandColor:g('c_brandColor').value,language:g('c_language').value,
   modes:{order:g('m_order').checked,priceCheck:g('m_priceCheck').checked,queueBoard:g('m_queueBoard').checked},orderTypes:g('c_orderTypes').value.split(',').map(s=>s.trim()).filter(Boolean),
   maxQtyPerLine:g('c_maxQtyPerLine').value,idleSeconds:g('c_idleSeconds').value,hiddenCodes:lst('hiddenCodes'),featuredCodes:lst('featuredCodes'),upsellCodes:lst('upsellCodes'),productOptions:textToOpts(g('c_opts').value)};
  ['askName','askPhone','askTable','orderNote','showStock','hideOutOfStock','upsell'].forEach(k=>{const e=g('c_'+k);cfg[k]=e?e.checked:false});
- const r=await api('PUT','/api/kiosk/config',{config:cfg,devPin:DEVPIN||undefined});$('#svm').textContent=r.success?'✓ Na-save. Mag-a-update ang kiosk sa susunod na refresh (≤1 min).':'✗ '+(r.message||'Error');if(r.success){DEVPIN='';g('c_businessType').disabled=true;g('dvu').textContent='🔒 I-unlock (Developer PIN)'}}
-function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');if(!ME)ME={role:''};lastIds='';poll();}
+ const r=await api('PUT','/api/kiosk/config',{config:cfg,devPin:DEVPIN||undefined});if(r.success&&r.config){BIZC=r.config.businessType||'general';applyLabels()}$('#svm').textContent=r.success?'✓ Na-save. Mag-a-update ang kiosk sa susunod na refresh (≤1 min).':'✗ '+(r.message||'Error');if(r.success){DEVPIN='';g('c_businessType').disabled=true;g('dvu').textContent='🔒 I-unlock (Developer PIN)'}}
+function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');if(!ME)ME={role:''};lastIds='';checkLicense().then(()=>{loadBiz();poll()})}
 setInterval(poll,3000);
-if(TOKEN){api('GET','/api/kiosk/config').then(()=>{ME=JSON.parse(sessionStorage.getItem('kc_me')||'null');start()}).catch(()=>{})}
+setInterval(()=>{if(TOKEN)checkLicense()},60000); // picks up a new/expired subscription without a page refresh
+if(TOKEN){api('GET','/api/kiosk/status').then(()=>{ME=JSON.parse(sessionStorage.getItem('kc_me')||'null');start()}).catch(()=>{})}
 const _l=$('#lb').onclick;$('#lb').onclick=async()=>{await _l();sessionStorage.setItem('kc_me',JSON.stringify(ME))};
 </script></body></html>

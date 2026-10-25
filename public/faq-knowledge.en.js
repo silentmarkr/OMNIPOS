@@ -1573,4 +1573,20 @@ window.OMNIPOS_FAQ_KB_EN = [
   answer: `<p>In a <strong>Blind Count</strong>, the expected (system) quantity and the variance are hidden while staff count. Only users with the <em>Physical Count: See Expected Quantities &amp; Approve</em> permission can see them (Admin always can).</p>
   <p>When an item's variance reaches the limit (default ₱500 per item; for products without a cost, a large percentage is used instead), the staff's finalize goes to <strong>Pending Approval</strong> and <strong>stock does not change yet</strong>. A manager can <em>Approve</em> it (only then is stock adjusted) or send it back for a <em>recount</em>. Managers see a badge on the tab and a banner, and the admin address gets an email if email is set up. While a count is pending, a new one cannot be started.</p>`
 },
+{
+  id: 'kiosk-self-order',
+  category: 'Premium Features',
+  question: 'What is the Self-Order Kiosk (OMNIKiosk) and how do I activate it?',
+  keywords: ['kiosk', 'omnikiosk', 'self order', 'self-order', 'kiosk counter', 'touchscreen', 'customer tablet', 'customers order by themselves', 'price check', 'order status', 'self service', 'activate kiosk'],
+  answer: `<p>The <strong>Self-Order Kiosk (OMNIKiosk)</strong> is a touchscreen/tablet where <strong>customers pick and place their own orders</strong>, with a <strong>Price Check</strong> mode (scan a barcode or search an item) and an <strong>Order Status board</strong> for people waiting. Every order appears instantly (with a sound) on the cashier/kitchen <strong>Kiosk Counter</strong> screen: <em>Preparing → Ready → Done</em>.</p>
+  <p>It works as <strong>pay at counter</strong>: the cashier still rings the sale up in the POS, so receipts, BIR/AGT and the audit trail stay complete. Prices and stock are <strong>re-computed by the server</strong>; the kiosk is never trusted.</p>
+  <p>It is a <strong>subscription module</strong> (monthly or yearly; the exact price is shown in the purchase window). To activate it:</p>
+  <ul>
+    <li>Log in as <strong>Admin</strong> and click <strong>Kiosk Counter</strong> in the sidebar (it shows a 🔒 while not activated).</li>
+    <li>Choose <strong>Monthly</strong> or <strong>Yearly</strong> and follow the purchase window.</li>
+    <li>Once active, the kiosk app and the Kiosk Counter work immediately.</li>
+  </ul>
+  <p>While it is <strong>not activated or has expired</strong> (including the grace period), the kiosk app and the Kiosk Counter show <em>"Not activated"</em> and <strong>stop accepting new orders</strong>. Existing orders and settings are kept and everything comes back after renewal.</p>
+  <p>Setup: create a user (e.g. <em>kiosk</em>) with <strong>Terminal permission only</strong> and no OTP, enter the server URL and login in the OMNIKiosk app, and enable OMNIPOS LAN access.</p>`
+},
 ];

@@ -4228,7 +4228,9 @@ function isVersionNewer(candidate, current) {
     return false;
 }
 const CLOUD_BACKUP_FEATURE_ID = 'cloud_backup';
-const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations', 'marketplace_hub'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations', 'marketplace_hub', 'self_order_kiosk'];
+// Self-Order Kiosk (OMNIKiosk app + Counter screen): a module subscription like Remote Operations / Marketplace Hub.
+const KIOSK_FEATURE_ID = 'self_order_kiosk';
 function isModuleSubscriptionFeature(featureId) {
     return MODULE_SUBSCRIPTION_FEATURE_IDS.includes(featureId);
 }
@@ -4291,6 +4293,13 @@ const MODULE_SUBSCRIPTION_PLANS_FALLBACK = {
         name: 'Marketplace Hub (Shopee, Lazada & TikTok Shop)',
         description: 'Connect your Shopee, Lazada and TikTok Shop stores: import orders and deduct stock automatically, sync stock and prices from the POS to your listings, and print shipping labels — all from one page.',
         price: { monthly: 399, yearly: 3990 }
+    },
+    // Local fallback only: the live price comes from RELAY (Pricing page) and overrides this value.
+    self_order_kiosk: {
+        id: 'self_order_kiosk',
+        name: 'Self-Order Kiosk (OMNIKiosk)',
+        description: 'Let customers order and check prices by themselves on a touchscreen kiosk tablet. Includes the OMNIKiosk app, the Kiosk Counter screen for cashier/kitchen (new-order sound, Preparing/Ready/Done), the Order Status board, Price Check, options/add-ons, upsell and business-type presets. Orders are paid at the counter, so your POS records stay complete.',
+        price: { monthly: 299, yearly: 2990 }
     }
 };
 const MODULE_SUBSCRIPTION_BILLING_CYCLES = { monthly: { label: 'Monthly', days: 30 }, yearly: { label: 'Yearly', days: 365 } };
@@ -4889,6 +4898,15 @@ const FEATURE_CATALOG = {
         get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.marketplace_hub.price; },
         billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
         description: 'Connect Shopee, Lazada and TikTok Shop: automatic order import with stock deduction, stock and price sync from the POS to your listings, and shipping label printing. Billed as a monthly or yearly subscription.'
+    },
+    self_order_kiosk: {
+        name: 'Self-Order Kiosk (OMNIKiosk)',
+        category: 'module',
+        isSubscription: true,
+        get price() { return MODULE_SUBSCRIPTION_PLANS.self_order_kiosk.price.monthly; },
+        get subscriptionPrice() { return MODULE_SUBSCRIPTION_PLANS.self_order_kiosk.price; },
+        billingCycles: MODULE_SUBSCRIPTION_BILLING_CYCLES,
+        description: 'Let customers order and check prices by themselves on a touchscreen kiosk tablet (OMNIKiosk app), with the Kiosk Counter screen for the cashier/kitchen, an Order Status board, Price Check, options/add-ons and upsell. Billed as a monthly or yearly subscription.'
     },
     [CLOUD_BACKUP_FEATURE_ID]: {
         name:'Cloud Backup (Postgres)',
@@ -9325,6 +9343,36 @@ app.get('/api/features/status', (req, res) => {
         subscriptionGraceWarnings: getModuleSubscriptionGraceWarnings()
     });
 });
+// Status of the Self-Order Kiosk module for kiosk.js (the /api/kiosk/* routes) and the Counter screen.
+// Fail-closed: any error while reading the license state reads as "locked".
+function getKioskFeatureStatus() {
+    const feature = FEATURE_CATALOG[KIOSK_FEATURE_ID];
+    const out = {
+        featureId: KIOSK_FEATURE_ID,
+        featureName: feature ? feature.name : KIOSK_FEATURE_ID,
+        unlocked: false,
+        demo: false,
+        inGracePeriod: false,
+        expiresAt: null,
+        graceEndsAt: null,
+        billingCycle: null,
+        subscriptionPrice: feature ? feature.subscriptionPrice : null
+    };
+    try {
+        out.unlocked = getUnlockedFeatureIds().includes(KIOSK_FEATURE_ID);
+        if (out.unlocked) {
+            const info = getModuleSubscriptionInfo(KIOSK_FEATURE_ID);
+            out.demo = !info.active && isDemoActive();
+            out.inGracePeriod = !!(info.active && info.inGracePeriod);
+            out.expiresAt = info.expiresAt || null;
+            out.billingCycle = info.billingCycle || null;
+            if (out.inGracePeriod && typeof info.expiresAt === 'number') out.graceEndsAt = info.expiresAt + MODULE_SUBSCRIPTION_GRACE_PERIOD_MS;
+        }
+    } catch (err) {
+        out.unlocked = false;
+    }
+    return out;
+}
 function getModuleSubscriptionInfo(featureId) {
     const data = readFeatureUnlocks();
     const installationId = getOrCreateInstallationId(data);
@@ -23130,7 +23178,7 @@ registerMarketplace({
     logAction, transactionsMutexRunExclusive, rateLimit, FILE_PRODUCTS, isDemoActive
 });
 // Self-Order Kiosk (OMNIKiosk app) — tingnan ang kiosk.js
-require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL });
+require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL, getKioskFeatureStatus });
 const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
 async function startOmniposServer() {
     await restoreFromCloudIfNeeded();

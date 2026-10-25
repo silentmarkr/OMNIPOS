@@ -1595,4 +1595,20 @@ window.OMNIPOS_FAQ_KB_TL = [
   answer: `<p>Sa <strong>Blind Count</strong>, nakatago ang inaasahang (system) na bilang at ang variance habang nagbibilang ang staff. Makikita lang ito ng may permission na <em>Physical Count: See Expected Quantities &amp; Approve</em> (laging mayroon ang Admin).</p>
   <p>Kapag ang pagkakaiba ng isang item ay umabot sa limit (default ₱500 kada item; mas mababang bilang ang ginagamit kapag walang cost), ang finalize ng staff ay mapupunta sa <strong>Pending Approval</strong> at <strong>hindi pa gagalaw ang stock</strong>. Puwedeng i-<em>Approve</em> ng manager (saka lang mag-a-adjust ang stock) o ibalik para sa <em>recount</em>. May lalabas na bilang sa tab at banner para sa mga manager, at may email sa admin address kung naka-setup ang email. Habang may nakabinbing count, hindi makakapagsimula ng bago.</p>`
 },
+{
+  id: 'kiosk-self-order',
+  category: 'Premium Features',
+  question: 'Ano ang Self-Order Kiosk (OMNIKiosk) at paano ito i-activate?',
+  keywords: ['kiosk', 'omnikiosk', 'self order', 'self-order', 'kiosk counter', 'touchscreen', 'tablet para sa customer', 'customer mismo ang mag-order', 'price check', 'order status', 'self service', 'i-activate ang kiosk'],
+  answer: `<p>Ang <strong>Self-Order Kiosk (OMNIKiosk)</strong> ay isang touchscreen/tablet na <strong>ang customer mismo ang pumipili at nag-oorder</strong>, may <strong>Price Check</strong> (i-scan ang barcode o hanapin ang item), at <strong>Order Status board</strong> para sa mga naghihintay. Ang bawat order ay lumalabas agad (may tunog) sa <strong>Kiosk Counter</strong> screen ng cashier/kusina: <em>Preparing → Ready → Done</em>.</p>
+  <p><strong>Pay at counter</strong> ang takbo: ang cashier pa rin ang magri-ring up sa POS, kaya buo pa rin ang resibo, BIR/AGT at audit trail. Ang presyo at stock ay <strong>ni-re-compute ng server</strong>, hindi pinagkakatiwalaan ang kiosk.</p>
+  <p>Isa itong <strong>subscription module</strong> (buwanan o taunan; makikita ang eksaktong presyo sa purchase window). Para i-activate:</p>
+  <ul>
+    <li>Mag-login bilang <strong>Admin</strong> at i-click ang <strong>Kiosk Counter</strong> sa sidebar (may 🔒 habang hindi pa activated).</li>
+    <li>Piliin ang <strong>Monthly</strong> o <strong>Yearly</strong> at sundin ang purchase window.</li>
+    <li>Kapag naka-activate na, gumagana na agad ang kiosk app at ang Kiosk Counter.</li>
+  </ul>
+  <p>Kapag <strong>hindi pa activated o expired na</strong> (pati ang grace period), magpapakita ang kiosk app at ang Kiosk Counter ng <em>"Not activated"</em> at <strong>hindi tatanggap ng bagong order</strong>. Hindi nabubura ang mga lumang order at settings; babalik ang lahat kapag na-renew.</p>
+  <p>Para sa setup: gumawa ng user (hal. <em>kiosk</em>) na <strong>Terminal permission lang</strong> at walang OTP, ilagay ang server URL at login sa OMNIKiosk app, at buksan ang LAN access ng OMNIPOS.</p>`
+},
 ];

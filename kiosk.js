@@ -12,6 +12,12 @@
 //   POST /api/kiosk/orders/:id/status  new -> preparing -> ready -> done | cancelled
 //   GET  /api/kiosk/summary          benta ng kiosk ngayon + top items (para sa owner)
 //   GET/PUT /api/kiosk/config        i-customize ng Admin ang kiosk (business type, options/add-ons, hidden items, atbp.)
+//   GET  /api/kiosk/status           lisensya ng module (Self-Order Kiosk subscription): unlocked? grace period? presyo?
+//
+// LISENSYA: ang Self-Order Kiosk ay isang module subscription (feature id 'self_order_kiosk', monthly/yearly, presyo galing sa RELAY).
+// Ang LAHAT ng /api/kiosk/* route (maliban sa /status) ay nasa likod ng server-side gate sa ibaba: kapag hindi naka-activate (o
+// expired na kasama ang grace period) ay 402 { featureLocked:true } ang sagot, kaya hindi ito ma-bypass sa kiosk app/counter page.
+// Fail-closed: kung hindi makuha ang lisensya (lumang hook sa server.js), naka-lock din.
 //
 // HINDI ito gumagawa ng POS "transaction" (BIR invoice/OR number, shift, cashier). Ang order ay "pay at counter":
 // ang cashier pa rin ang magri-ring up sa POS, kaya buo ang BIR/AGT/audit trail ng POS. Ang stock ay "reserved" lang
@@ -19,6 +25,7 @@
 
 'use strict';
 
+const FEATURE_ID = 'self_order_kiosk';
 const FILE_CONFIG = 'kioskConfig';
 const FILE_ORDERS = 'kioskOrders';
 const ORDERS_CAP = 3000;
@@ -63,7 +70,7 @@ const BIZ_MODES = {
     restaurant: { order: true, priceCheck: false, queueBoard: true },
     minimart: { order: true, priceCheck: true, queueBoard: false },
     sari: { order: false, priceCheck: true, queueBoard: false },
-    service: { order: true, priceCheck: false, queueBoard: true },
+    service: { order: true, priceCheck: true, queueBoard: true }, // price check = service price list; queue board = schedule status
     pharmacy: { order: true, priceCheck: true, queueBoard: false },
     hardware: { order: true, priceCheck: true, queueBoard: false },
     general: { order: true, priceCheck: true, queueBoard: true }
@@ -161,6 +168,31 @@ module.exports = function registerKiosk(deps) {
     const noop = (req, res, next) => next();
     const limit = (name, max, ms) => (typeof rateLimit === 'function' ? rateLimit(name, max, ms) : noop);
 
+    // ---- License gate (Self-Order Kiosk subscription) ----
+    // deps.getKioskFeatureStatus() comes from server.js. If it is missing (old hook), everything stays locked (fail-closed).
+    function licenseStatus() {
+        try { return typeof deps.getKioskFeatureStatus === 'function' ? deps.getKioskFeatureStatus() : null; } catch (e) { return null; }
+    }
+    function lockedBody(st) {
+        return {
+            success: false,
+            featureLocked: true,
+            featureId: FEATURE_ID,
+            featureName: (st && st.featureName) || 'Self-Order Kiosk (OMNIKiosk)',
+            isSubscription: true,
+            subscriptionPrice: (st && st.subscriptionPrice) || null,
+            hookOutdated: !st,
+            message: st
+                ? 'Self-Order Kiosk is not active on this store (subscription inactive or expired). Ask the store owner/admin to activate it in OMNIPOS.'
+                : 'Self-Order Kiosk license check is unavailable. Re-run install-kiosk-addon.js on the OMNIPOS server to update the kiosk hook in server.js, then restart the server.'
+        };
+    }
+    const gate = (req, res, next) => {
+        const st = licenseStatus();
+        if (st && st.unlocked === true) return next();
+        noStore(res);
+        return res.status(402).json(lockedBody(st));
+    };
     const isAdmin = req => String((req.authUser && req.authUser.role) || '').toLowerCase() === 'admin';
     const getConfig = () => sanitizeConfig(readData(FILE_CONFIG, {}), null);
     const getOrders = () => { const o = readData(FILE_ORDERS, []); return Array.isArray(o) ? o : []; };
@@ -209,7 +241,27 @@ module.exports = function registerKiosk(deps) {
         };
     }
 
-    app.get('/api/kiosk/catalog', (req, res) => {
+    // Not gated: the kiosk app and the Counter screen call this first to decide between the normal screens and the "not activated" screen.
+    app.get('/api/kiosk/status', (req, res) => {
+        noStore(res);
+        const st = licenseStatus();
+        if (!st) return res.json({ success: true, unlocked: false, featureId: FEATURE_ID, hookOutdated: true, message: lockedBody(null).message });
+        res.json({
+            success: true,
+            unlocked: st.unlocked === true,
+            featureId: FEATURE_ID,
+            featureName: st.featureName,
+            demo: !!st.demo,
+            inGracePeriod: !!st.inGracePeriod,
+            expiresAt: st.expiresAt || null,
+            graceEndsAt: st.graceEndsAt || null,
+            billingCycle: st.billingCycle || null,
+            subscriptionPrice: st.subscriptionPrice || null,
+            isAdmin: isAdmin(req)
+        });
+    });
+
+    app.get('/api/kiosk/catalog', gate, (req, res) => {
         noStore(res);
         const cfg = getConfig();
         const hidden = new Set(cfg.hiddenCodes);
@@ -228,7 +280,7 @@ module.exports = function registerKiosk(deps) {
         res.json({ success: true, config: cfg, store: storeInfo(), categories: cats, products, serverTime: new Date().toISOString() });
     });
 
-    app.get('/api/kiosk/lookup', (req, res) => {
+    app.get('/api/kiosk/lookup', gate, (req, res) => {
         noStore(res);
         const code = String(req.query.code || '').trim().toLowerCase();
         if (!code) return res.status(400).json({ success: false, message: 'Walang code.' });
@@ -251,7 +303,7 @@ module.exports = function registerKiosk(deps) {
         res.json({ success: true, product: out });
     });
 
-    app.post('/api/kiosk/orders', limit('kiosk-order', 120, 10 * 60 * 1000), (req, res) => {
+    app.post('/api/kiosk/orders', gate, limit('kiosk-order', 120, 10 * 60 * 1000), (req, res) => {
         const cfg = getConfig();
         if (!cfg.modes.order) return res.status(403).json({ success: false, message: 'Naka-off ang self-order sa kiosk na ito.' });
         const body = req.body || {};
@@ -345,7 +397,7 @@ module.exports = function registerKiosk(deps) {
         res.json({ success: true, order: { id: order.id, orderNo: order.orderNo, total, orderType, createdAt: order.createdAt } });
     });
 
-    app.get('/api/kiosk/queue', (req, res) => {
+    app.get('/api/kiosk/queue', gate, (req, res) => {
         noStore(res);
         const day = todayKey();
         const list = getOrders().filter(o => o.dayKey === day && (o.status === 'preparing' || o.status === 'ready'));
@@ -356,7 +408,7 @@ module.exports = function registerKiosk(deps) {
         });
     });
 
-    app.get('/api/kiosk/orders', (req, res) => {
+    app.get('/api/kiosk/orders', gate, (req, res) => {
         noStore(res);
         const status = String(req.query.status || 'open');
         const day = req.query.all === '1' ? null : todayKey();
@@ -366,7 +418,7 @@ module.exports = function registerKiosk(deps) {
         res.json({ success: true, orders: list.slice(-300) });
     });
 
-    app.post('/api/kiosk/orders/:id/status', (req, res) => {
+    app.post('/api/kiosk/orders/:id/status', gate, (req, res) => {
         const next = String((req.body || {}).status || '');
         if (!ALL_STATUSES.has(next)) return res.status(400).json({ success: false, message: 'Maling status.' });
         const orders = getOrders();
@@ -382,7 +434,7 @@ module.exports = function registerKiosk(deps) {
         res.json({ success: true, order: o });
     });
 
-    app.get('/api/kiosk/summary', (req, res) => {
+    app.get('/api/kiosk/summary', gate, (req, res) => {
         noStore(res);
         const day = todayKey();
         const list = getOrders().filter(o => o.dayKey === day);
@@ -402,8 +454,8 @@ module.exports = function registerKiosk(deps) {
         });
     });
 
-    app.get('/api/kiosk/config', (req, res) => { noStore(res); res.json({ success: true, config: getConfig() }); });
-    app.put('/api/kiosk/config', async (req, res) => {
+    app.get('/api/kiosk/config', gate, (req, res) => { noStore(res); res.json({ success: true, config: getConfig() }); });
+    app.put('/api/kiosk/config', gate, async (req, res) => {
         if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin lang ang pwedeng mag-edit ng kiosk settings.' });
         const cur = getConfig();
         const cfg = sanitizeConfig((req.body || {}).config, cur);
@@ -418,7 +470,7 @@ module.exports = function registerKiosk(deps) {
         try { logAction(req.authUser.username, 'Updated Kiosk settings'); } catch (e) { /* ignore */ }
         res.json({ success: true, config: cfg });
     });
-    app.post('/api/kiosk/dev-verify', limit('kiosk-dev', 20, 10 * 60 * 1000), async (req, res) => {
+    app.post('/api/kiosk/dev-verify', gate, limit('kiosk-dev', 20, 10 * 60 * 1000), async (req, res) => {
         if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin lang.' });
         const chk = await checkDevPin(deps, (req.body || {}).devPin);
         res.status(chk.ok ? 200 : 403).json({ success: chk.ok, message: chk.message || '' });

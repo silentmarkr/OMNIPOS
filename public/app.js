@@ -1954,6 +1954,7 @@ const SIDEBAR_FEATURE_LOCK_MAP = {
 'menu-attendance-lock':'remote_operations',
 'menu-remoteops-lock':'remote_operations',
 'menu-marketplace-lock':'marketplace_hub',
+'menu-kiosk-counter-lock':'self_order_kiosk',
 'menu-inventory-tools-lock':'inventory_tools',
 'menu-bir_compliance-lock':'bir_compliance'
 };
@@ -2285,6 +2286,7 @@ const PREMIUM_FEATURE_FALLBACK = {
     ai_assistant: { name:'Omni AI', description:'An advanced AI-powered assistant, embedded in the Help page, that answers questions about how to use the system based on the OmniPOS FAQ Knowledge Base.' },
     remote_operations: { name:'Remote Operations & Attendance', description:'Phone-friendly remote sales monitoring, staff time in/out, selfie attendance evidence, and staff activity reports.' },
     marketplace_hub: { name:'Marketplace Hub (Shopee, Lazada & TikTok Shop)', description:'Import Shopee, Lazada and TikTok Shop orders with automatic stock deduction, sync stock and prices to your listings, and print shipping labels.' },
+    self_order_kiosk: { name:'Self-Order Kiosk (OMNIKiosk)', description:'Let customers order and check prices by themselves on a touchscreen kiosk tablet (OMNIKiosk app), with the Kiosk Counter screen for the cashier/kitchen, an Order Status board, Price Check, options/add-ons and upsell. Orders are paid at the counter.' },
     inventory_tools: { name:'Inventory Tools', description:'Physical inventory counts, consignment stock receiving/settlement, a damage/waste log with automatic stock deduction, a dead-stock/slow-moving report, and a Supplier Directory.' },
 };
 const CLOUD_BACKUP_PLANS_UI = {
@@ -2374,13 +2376,14 @@ function openInventoryToolsLink(event) {
     }
     return true;
 }
-const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations', 'marketplace_hub'];
+const MODULE_SUBSCRIPTION_FEATURE_IDS_UI = ['rbac_management', 'multi_branch', 'ai_assistant', 'remote_operations', 'marketplace_hub', 'self_order_kiosk'];
 const MODULE_SUBSCRIPTION_PLANS_UI = {
     rbac_management: { tagline: 'Create custom roles and configure which menus each role can access.', price: { monthly: 149, yearly: 1490 } },
     multi_branch: { tagline: 'Combine sales, transactions, and low-stock snapshots from all branches into one view.', price: { monthly: 199, yearly: 1990 } },
     ai_assistant: { tagline: 'AI-powered help assistant on the Help page, grounded on the OmniPOS FAQ Knowledge Base.', price: { monthly: 179, yearly: 1790 } },
     remote_operations: { tagline: 'Remote sales monitoring, staff time in/out with selfie evidence, and staff activity reports.', price: { monthly: 249, yearly: 2490 } },
-    marketplace_hub: { tagline: 'Shopee, Lazada & TikTok Shop: order import, automatic stock/price sync, and shipping labels.', price: { monthly: 399, yearly: 3990 } }
+    marketplace_hub: { tagline: 'Shopee, Lazada & TikTok Shop: order import, automatic stock/price sync, and shipping labels.', price: { monthly: 399, yearly: 3990 } },
+    self_order_kiosk: { tagline: 'Self-order touchscreen kiosk (OMNIKiosk app), Kiosk Counter screen, Order Status board, Price Check, options/add-ons and upsell.', price: { monthly: 299, yearly: 2990 } }
 };
 const ALL_SUBSCRIPTION_FEATURE_IDS_UI = ['cloud_backup', ...MODULE_SUBSCRIPTION_FEATURE_IDS_UI];
 async function promptModuleSubscription(featureId) {
@@ -8391,6 +8394,19 @@ function syncKioskShortcut(allowed) {
     document.querySelectorAll('[data-kiosk-shortcut]').forEach(el => {
         el.style.display = (window.__kioskInstalled && window.__kioskAllowed !== false) ? '' : 'none';
     });
+}
+// Self-Order Kiosk is a subscription module ('self_order_kiosk'). While it is locked, the Kiosk Counter shortcut opens the
+// subscription window instead of the Counter page (the server also refuses every /api/kiosk/* call, so this is only the friendly front door).
+// While the unlock state is still unknown (cache not loaded yet) the page is allowed to open; the Counter page checks the license itself.
+function openKioskCounterLink(event) {
+    let locked = false;
+    try {
+        if (typeof unlockedFeatureIdsCache !== 'undefined' && Array.isArray(unlockedFeatureIdsCache)) locked = !unlockedFeatureIdsCache.includes('self_order_kiosk');
+    } catch (e) { locked = false; }
+    if (!locked) return true;
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    try { guardPremiumFeature('self_order_kiosk'); } catch (e) { /* purchase window could not open */ }
+    return false;
 }
 try { fetch('kiosk-counter.html', { method: 'HEAD', cache: 'no-store' }).then(r => { window.__kioskInstalled = r.ok; syncKioskShortcut(); }).catch(() => {}); } catch (e) {}
 const MENU_ID_OVERRIDES = { dashboard:'menu-inventory-dashboard' };
