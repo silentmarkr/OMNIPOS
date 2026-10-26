@@ -1,10 +1,12 @@
 <!DOCTYPE html>
-<html lang="tl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kiosk Counter · OMNIPOS</title>
+<meta name="theme-color" content="#22314a">
+<link rel="stylesheet" href="css/all.min.css">
 <script>(function(){try{var o=localStorage.getItem('kc_theme'),t=localStorage.getItem('omnipos_theme');if(!t)t=localStorage.getItem('omnipos_darkmode')==='true'?'dark':'day';var d=(o==='day'||o==='dark')?o==='dark':t!=='day';document.documentElement.classList.toggle('dark',d)}catch(e){}})()</script>
 <style>
 :root{--b:#2563eb;--bh:#1d4ed8;--bg:#f4f7fb;--card:#ffffff;--ink:#1e293b;--m:#64748b;--l:#e2e8f0;--ok:#16a34a;--bad:#dc2626;--warn:#eab308;--warnt:#b45309;--soft:#eff6ff;--alt:#eef2f7;--navy:#0f172a;--graceb:#fef3c7;--graceln:#fde68a;--backdrop:radial-gradient(circle at 15% 20%,rgba(56,189,248,.07),transparent 40%),radial-gradient(circle at 85% 80%,rgba(168,85,247,.06),transparent 42%),#f4f7fb}
-/* Kulay ng OmniPOS (galing sa style.css ng OmniPOS): day #f4f7fb / #2563eb, dark #121218 / #7c5cff. Sumusunod sa napiling theme ng OmniPOS. */
+/* OmniPOS colors (from OmniPOS style.css): day #f4f7fb / #2563eb, dark #121218 / #7c5cff. Follows the OmniPOS theme. */
 html.dark{--b:#7c5cff;--bh:#6a48ff;--bg:#121218;--card:#1c1c24;--ink:#f5f5f7;--m:#9a9ba8;--l:#262733;--soft:rgba(124,92,255,.16);--alt:#22232d;--navy:#22232d;--warnt:#fbbf24;--graceb:rgba(234,179,8,.14);--graceln:rgba(234,179,8,.35);--backdrop:radial-gradient(circle at 15% 20%,rgba(56,189,248,.08),transparent 40%),radial-gradient(circle at 85% 80%,rgba(192,132,252,.07),transparent 42%),#121218;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,sans-serif;background:var(--backdrop);background-attachment:fixed;color:var(--ink);min-height:100vh}
 header{display:flex;gap:8px;align-items:center;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--l);position:sticky;top:0;z-index:5;flex-wrap:wrap}
@@ -16,7 +18,33 @@ button.g{background:var(--card);color:var(--ink);border:2px solid var(--l)}butto
 main{padding:14px;max-width:1100px;margin:auto}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(290px,100%),1fr));gap:12px}
 .o{background:var(--card);border-radius:14px;padding:14px;box-shadow:0 1px 3px #0002;border-left:8px solid var(--b);min-width:0;overflow-wrap:anywhere}
-.o.preparing{border-color:var(--warn)}.o.ready{border-color:var(--ok)}
+.o.preparing{border-color:var(--warn)}.o.ready{border-color:var(--ok)}.o.paid{box-shadow:0 0 0 2px var(--ok) inset,0 1px 3px #0002}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px}
+.kpi{background:var(--card);border:1px solid var(--l);border-radius:12px;padding:8px 12px}.kpi small{color:var(--m);font-weight:600;display:block}.kpi b{font-size:1.5em;line-height:1.2}
+.kpi.a b{color:var(--warnt)}.kpi.p b{color:var(--ok)}.kpi.r b{color:var(--b)}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;position:sticky;top:var(--hh,56px);z-index:4;background:var(--bg);padding:6px 0}
+.tools input{flex:1;min-width:150px}
+.chips{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}.chips::-webkit-scrollbar{display:none}.chip{white-space:nowrap;flex:0 0 auto}.tools input{flex:1 1 100%}@media(min-width:760px){.tools input{flex:1 1 220px}}.chip{padding:7px 12px;border-radius:999px;background:var(--card);color:var(--ink);border:2px solid var(--l);font-size:.9em}.chip:hover{background:var(--alt)}.chip.on{background:var(--b);color:#fff;border-color:var(--b)}.chip i{font-style:normal;opacity:.75;margin-left:4px}
+.el{display:inline-block;padding:2px 9px;border-radius:999px;font-weight:700;font-size:.85em;background:var(--alt);color:var(--m)}.el.w{background:#fef3c7;color:#92400e}.el.x{background:#fee2e2;color:#b91c1c}
+html.dark .el.w{background:rgba(234,179,8,.18);color:#fbbf24}html.dark .el.x{background:rgba(220,38,38,.2);color:#fca5a5}
+.stp{display:flex;align-items:center;gap:0;margin:8px 0 4px;font-size:.72em;font-weight:700;color:var(--m)}
+.stp span{flex:1;text-align:center;position:relative;padding-top:14px}.stp span:before{content:'';position:absolute;left:50%;top:0;width:10px;height:10px;margin-left:-5px;border-radius:50%;background:var(--l);z-index:1}
+.stp span:after{content:'';position:absolute;left:-50%;top:4px;width:100%;height:2px;background:var(--l)}.stp span:first-child:after{display:none}
+.stp span.d{color:var(--ink)}.stp span.d:before,.stp span.d:after{background:var(--ok)}.stp span.c:before{background:var(--b);box-shadow:0 0 0 4px var(--soft)}.stp span.c{color:var(--b)}
+.pw{margin:8px 0 0;padding:6px 10px;border-radius:10px;background:var(--graceb);border:1px solid var(--graceln);color:var(--warnt);font-weight:700;font-size:.9em}
+.mdl{position:fixed;inset:0;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.mdl .bx{background:var(--card);color:var(--ink);border-radius:16px;padding:18px;max-width:420px;width:100%;box-shadow:0 20px 50px #0007;border:1px solid var(--l)}
+.mdl h3{margin:0 0 8px;font-size:1.25em}.mdl .sm{background:var(--alt);border-radius:10px;padding:10px;margin:8px 0;font-size:.95em}.mdl .sm b{font-size:1.1em}
+.mdl .wn{background:var(--graceb);border:1px solid var(--graceln);color:var(--warnt);border-radius:10px;padding:8px 10px;margin:8px 0;font-weight:700}
+.mdl .bt{display:flex;gap:10px;margin-top:12px}.mdl .bt button{flex:1;min-height:48px}
+#toasts{position:fixed;left:12px;right:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;z-index:60;align-items:center;pointer-events:none}
+.tst{pointer-events:auto;background:var(--navy);color:#fff;border-radius:12px;padding:10px 12px;display:flex;gap:12px;align-items:center;max-width:520px;width:100%;box-shadow:0 8px 24px #0006;position:relative;overflow:hidden}
+.tst span{flex:1}.tst button{background:#fff;color:#0f172a;padding:7px 14px;min-height:0}.tst .bar{position:absolute;left:0;bottom:0;height:3px;background:var(--ok);animation:bar linear forwards}@keyframes bar{from{width:100%}to{width:0}}
+.o.closing{opacity:.5;pointer-events:none;filter:grayscale(.6)}
+.acts .sp{flex:1 1 20px}
+.o.pulse{animation:pl 1.2s ease-out 2}@keyframes pl{0%{box-shadow:0 0 0 0 var(--b)}100%{box-shadow:0 0 0 14px transparent}}
+.o h3 .no{font-size:1em}.tbl{display:inline-block;margin:6px 0 2px;padding:4px 12px;border-radius:999px;background:var(--soft);color:var(--b);font-weight:800;font-size:1.05em;border:2px solid var(--b)}
+.pdb{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--ok);color:#fff;font-weight:800}.upb{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--alt);color:var(--warnt);font-weight:800}
 .o h3{margin:0 0 4px;display:flex;justify-content:space-between;font-size:1.5em}.o small{color:var(--m)}
 .o ul{padding-left:18px;margin:8px 0}.o .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .box{background:var(--card);border-radius:14px;padding:16px;margin-bottom:14px;border:1px solid var(--l)}
@@ -33,52 +61,205 @@ pre{white-space:pre-wrap;background:var(--alt);padding:8px;border-radius:8px;fon
 .hot{display:inline-block;background:#fff7ed;color:#c2410c;border:1px solid #fdba74;border-radius:999px;padding:3px 10px;font-weight:700;margin:3px 4px 3px 0}
 html.dark .hot{background:#431407;color:#fdba74;border-color:#9a3412}
 .muted{color:var(--m)}
+.alg{margin:8px 0 2px;padding:7px 10px;border-radius:10px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-weight:600}
+html.dark .alg{background:rgba(220,38,38,.18);color:#fca5a5;border-color:rgba(220,38,38,.45)}
 /* License lock (Self-Order Kiosk subscription): while locked, only the lock box is shown */
 #lock{display:none}.locked #lock{display:block}
 .locked #v1,.locked #v2,.locked #v3,.locked #t1,.locked #t2,.locked #t3{display:none!important}
 #grace{padding:10px 14px;background:var(--graceb);border-bottom:1px solid var(--graceln);font-weight:600}
 a.btnlink{display:inline-block;text-decoration:none;border-radius:10px;padding:10px 14px;background:var(--b);color:#fff;font-weight:700}
+
+/* ===== POS-terminal look (matches OmniPOS sidebar, cards, pills and mono prices) ===== */
+:root{--mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--side:#22314a;--sidebar-ink:#c7d4ea;--rad:16px;--sh:0 2px 8px rgba(15,23,42,.08)}
+html.dark{--side:#111c2e;--sh:0 2px 8px rgba(0,0,0,.28)}
+html,body{font-size:16px}
+body{background:radial-gradient(circle at 15% 20%,rgba(56,189,248,.06),transparent 40%),radial-gradient(circle at 85% 80%,rgba(168,85,247,.05),transparent 42%),var(--bg);background-attachment:fixed}
+html.dark body{background:radial-gradient(circle at 15% 20%,rgba(56,189,248,.08),transparent 40%),radial-gradient(circle at 85% 80%,rgba(192,132,252,.07),transparent 42%),var(--bg);background-attachment:fixed}
+#app:not(.hide){display:flex;min-height:100vh}
+.side{position:sticky;top:0;height:100vh;width:236px;flex:0 0 236px;background:var(--side);color:#94a3b8;display:flex;flex-direction:column;z-index:20}
+.sb-brand{padding:20px 20px;font-size:1.25rem;font-weight:800;color:#fff;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.08)}
+.sb-brand .mk{width:1.7em;height:1.7em;color:#fff}.sb-brand small{display:block;font-size:.62rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#8b9dc3;margin-top:2px}
+.sb-menu{padding:16px 12px;display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto}
+.sb-label{font-size:.68rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#8b9dc3;padding:6px 16px}
+.side .sb-menu button{display:flex;align-items:center;gap:0;width:100%;text-align:left;background:transparent;color:var(--sidebar-ink);font-weight:500;border-radius:8px;padding:10px 16px;border:0;transition:all .2s;position:relative;min-height:48px}
+.side .sb-menu button i{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;font-size:1rem;margin-right:12px;border-radius:8px;background:rgba(148,163,184,.08);transition:all .2s;flex:0 0 auto}
+.side .sb-menu button:hover,.side .sb-menu button.on{color:#fff;background:linear-gradient(90deg,var(--b),var(--bh));box-shadow:inset 3px 0 0 0 #fff}
+.side .sb-menu button:hover i,.side .sb-menu button.on i{background:rgba(255,255,255,.18)}
+.side .sb-menu button .lb{flex:1}
+.nb{min-width:24px;height:24px;border-radius:12px;background:var(--bad);color:#fff;font-style:normal;font-weight:800;font-size:.8rem;display:inline-flex;align-items:center;justify-content:center;padding:0 7px;animation:nbp 1.6s ease-in-out infinite}
+@keyframes nbp{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.55)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
+.sb-foot{padding:14px 18px;border-top:1px solid rgba(255,255,255,.08);font-size:.74rem;color:#8b9dc3;line-height:1.4}
+.sb-foot b{color:#fff;display:block;font-size:.82rem}
+.mainc{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;gap:8px;padding:10px 18px;background:var(--card);border-bottom:1px solid var(--l);position:sticky;top:0;z-index:15;flex-wrap:wrap}
+.top #vt{font-size:1.2rem;font-weight:800;margin-right:auto;display:flex;align-items:center;gap:10px}
+.top #vt:before{content:'';width:6px;height:22px;border-radius:3px;background:linear-gradient(180deg,#22d3ee,var(--b))}
+.top .ib{width:44px;height:44px;padding:0;border-radius:12px;background:var(--card);color:var(--ink);border:1px solid var(--l);display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem}
+.top .ib:hover{background:var(--alt)}.top .ib.off{color:var(--m)}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;background:var(--alt);color:var(--m);font-weight:700;font-size:.85rem;font-family:var(--mono)}
+#st{display:inline-flex;align-items:center;gap:7px;font-weight:700;font-size:.85rem;color:var(--m)}
+main{padding:18px;max-width:1500px;width:100%;margin:0 auto}
+/* KPI */
+.kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.kpi{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--l);border-radius:var(--rad);padding:12px 14px;box-shadow:var(--sh)}
+.kpi>i{width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:1.1rem;background:var(--soft);color:var(--b);flex:0 0 auto}
+.kpi.a>i{background:rgba(234,179,8,.16);color:var(--warnt)}.kpi.p>i{background:rgba(22,163,74,.14);color:var(--ok)}.kpi.x>i{background:rgba(220,38,38,.12);color:var(--bad)}
+.kpi small{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em}.kpi b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:1.65rem}
+.kpi.x b{color:var(--bad)}
+/* tools / chips */
+.tools{top:var(--hh,64px);padding:8px 0}
+.tools input{height:48px;border-radius:12px;padding-left:14px}
+.chip{border-radius:999px;border:1px solid var(--l);background:var(--card);min-height:44px;font-weight:700;padding:8px 14px;display:inline-flex;align-items:center;gap:8px}
+.chip i{font-style:normal;font-family:var(--mono);background:var(--alt);color:var(--m);border-radius:999px;padding:1px 8px;font-size:.8rem}
+.chip.on{background:var(--b);border-color:var(--b);color:#fff}.chip.on i{background:rgba(255,255,255,.22);color:#fff}
+/* order cards = terminal cards */
+.cards{grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));gap:14px;align-items:start}
+.stp{font-size:.68rem}.stp span{overflow-wrap:normal;word-break:normal;white-space:nowrap}
+.o{border:1px solid var(--l);border-left:1px solid var(--l);border-top:5px solid var(--b);border-radius:var(--rad);box-shadow:var(--sh);padding:14px 14px 12px;transition:transform .12s,box-shadow .2s}
+.o.preparing{border-top-color:var(--warn)}.o.ready{border-top-color:var(--ok)}
+.o.paid{box-shadow:0 0 0 2px var(--ok) inset,var(--sh)}
+.o.late{animation:late 2s ease-in-out infinite}@keyframes late{0%,100%{box-shadow:var(--sh)}50%{box-shadow:0 0 0 3px rgba(220,38,38,.35),var(--sh)}}
+.o h3{align-items:baseline}.o h3 .no{font-family:var(--mono);font-weight:800;letter-spacing:-.02em}
+.o h3 span:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ok);font-size:.9em}
+.o ul{list-style:none;padding:0;margin:10px 0;border-top:1px dashed var(--l)}
+.o li{padding:7px 0;border-bottom:1px dashed var(--l);display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+.o li b{font-family:var(--mono);color:var(--b);min-width:2.2em}
+.o .acts button{min-height:46px;border-radius:12px;flex:1 1 auto;transition:transform .08s}
+.o .acts button:active{transform:scale(.96)}
+.o .acts .sp{flex:0 0 0}
+.pdb,.upb,.el,.tbl{font-size:.82rem}
+button{transition:background .15s,transform .08s}button:active{transform:scale(.97)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--soft);outline-offset:2px;border-color:var(--b)}
+.empty{border:2px dashed var(--l);border-radius:var(--rad);background:var(--card);color:var(--m);font-weight:600}
+.empty:before{content:'\f2e7';font-family:'Font Awesome 6 Free';font-weight:900;display:block;font-size:2.4rem;margin-bottom:10px;color:var(--b);opacity:.7}
+/* boxes / settings / summary */
+.box{border-radius:var(--rad);box-shadow:var(--sh)}
+.box h3{margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.stat div{border:1px solid var(--l);border-radius:14px}.stat b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+#hotl .hot,.hot{border-radius:999px}
+#sv{min-height:52px;padding:0 24px;border-radius:12px;box-shadow:0 8px 20px -8px var(--b)}
+input[type=text],input[type=number],input[type=password],input[type=time],textarea,select{border-radius:12px;min-height:46px;border:1px solid var(--l);background:var(--card)}
+#grace{border-radius:0}
+/* modal + toast */
+.mdl{backdrop-filter:blur(3px);animation:fi .15s}@keyframes fi{from{opacity:0}to{opacity:1}}
+.mdl .bx{border-radius:20px;animation:ri .2s cubic-bezier(.2,.8,.2,1)}@keyframes ri{from{transform:translateY(18px) scale(.97);opacity:0}to{transform:none;opacity:1}}
+.tst{border-radius:14px}
+/* login */
+#login{box-shadow:0 20px 50px -20px rgba(15,23,42,.45)}
+#login .lgb{display:flex;align-items:center;gap:12px;margin-bottom:6px}#login .lgb .mk{width:2.6em;height:2.6em;color:var(--b)}#login h2{margin:0}
+#login small{color:var(--m)}
+#login input{margin-bottom:4px}
+/* phones / small tablets: bottom tab bar like the POS mobile layout */
+@media(max-width:860px){
+ #app:not(.hide){display:block;padding-bottom:78px}
+ .side{position:fixed;left:0;right:0;bottom:0;top:auto;height:auto;width:auto;flex-direction:row;z-index:30;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(255,255,255,.1)}
+ .sb-brand,.sb-label,.sb-foot{display:none}
+ .sb-menu{flex-direction:row;padding:0;gap:6px;overflow:visible}
+ .side .sb-menu button{flex-direction:column;justify-content:center;gap:2px;padding:6px 4px;min-height:56px;text-align:center;font-size:.78rem;border-radius:12px;box-shadow:none!important}
+ .side .sb-menu button i{margin:0;width:26px;height:26px}.side .sb-menu button .lb{flex:0 0 auto}
+ .side .sb-menu button .nb{position:absolute;top:2px;right:18%}
+ .top{padding:8px 12px}.top .ib{width:42px;height:42px}
+ main{padding:12px}#toasts{bottom:86px}
+ .top{flex-wrap:nowrap;gap:6px}.top #ck{display:none}.top #vt{font-size:1.05rem;min-width:0}.top .ib{width:40px;height:40px;flex:0 0 auto}
+ .kpis{display:flex;overflow-x:auto;gap:8px;scrollbar-width:none;margin-bottom:10px}.kpis::-webkit-scrollbar{display:none}
+ .kpi{flex:0 0 auto;min-width:150px;padding:8px 10px;gap:10px}.kpi>i{width:36px;height:36px;font-size:.95rem}.kpi b{font-size:1.35rem}.kpi small{font-size:.66rem}
+}
+@media (prefers-reduced-motion:reduce){.nb,.o.late,.mdl,.mdl .bx{animation:none}}
+
+/* ===== minimal: neutral surfaces, ONE accent; red only for urgent ===== */
+.o{border-top:1px solid var(--l);box-shadow:var(--sh)}
+.o.new,.o.preparing,.o.ready{border-color:var(--l)}
+.o.paid{box-shadow:var(--sh)}
+.o.late,.o.late.new,.o.late.preparing{animation:none;border-color:var(--bad)}
+.o h3 .no:before{content:'';display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;vertical-align:middle;border:2px solid var(--m);background:transparent}
+.o.preparing h3 .no:before{border-color:var(--b)}
+.o.ready h3 .no:before{border-color:var(--b);background:var(--b)}
+.o h3 span:last-child{color:var(--ink)}
+.o li b{color:var(--m)}
+.pdb{background:var(--ink);color:var(--card);font-weight:700}
+.upb,.tbl,.el,.el.w{background:transparent;border:1px solid var(--l);color:var(--m);font-weight:600}
+.tbl{color:var(--ink);font-size:.82rem;padding:2px 10px;margin:0}
+.el.x{background:transparent;border-color:var(--bad);color:var(--bad)}
+html.dark .el.w,html.dark .el.x{background:transparent}html.dark .el.w{color:var(--m)}html.dark .el.x{color:var(--bad)}
+.pw{background:var(--alt);border:1px solid var(--l);color:var(--ink);font-weight:600}
+.stp span.d{color:var(--m)}.stp span.d:before,.stp span.d:after{background:var(--m)}
+.o .acts button{background:var(--card);color:var(--ink);border:1px solid var(--l);font-weight:700}
+.o .acts button:hover{background:var(--alt)}
+.o .acts button.k{background:var(--b);border-color:var(--b);color:#fff}.o .acts button.k:hover{background:var(--bh)}
+.o .acts button.r{background:transparent;color:var(--bad);flex:0 0 auto;min-width:46px}
+.o .acts button.g{background:var(--card);color:var(--ink)}
+.kpi>i,.kpi.a>i,.kpi.p>i,.kpi.r>i{background:var(--alt);color:var(--ink)}
+.kpi.x>i{background:var(--alt);color:var(--bad)}
+.kpi.a b,.kpi.p b,.kpi.r b{color:var(--ink)}
+.nb{background:var(--b);animation:none}
+.tst .bar{background:var(--b)}
+.hot{background:var(--alt);color:var(--ink);border-color:var(--l)}html.dark .hot{background:var(--alt);color:var(--ink);border-color:var(--l)}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><linearGradient id="omni-brand-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#1d8bf0"/></linearGradient></defs></svg>
-<div id="login" style="max-width:340px;margin:12vh auto" class="box"><h2>Kiosk Counter</h2><label>Username</label><input type="text" id="u" autocapitalize="off"><label>Password</label><input type="password" id="p"><p id="lm" style="color:var(--bad)"></p><button id="lb" style="width:100%">Login</button></div>
+<div id="login" style="max-width:360px;margin:12vh auto" class="box"><div class="lgb"><svg class="mk" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg><div><h2>Kiosk Counter</h2><small>OMNIPOS · Self-Order</small></div></div><label>Username</label><input type="text" id="u" autocapitalize="off"><label>Password</label><input type="password" id="p"><p id="lm" style="color:var(--bad)"></p><button id="lb" style="width:100%;min-height:50px">Login</button></div>
+<div id="toasts"></div>
 <div id="app" class="hide">
-<header><b><svg class="mk" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg>Kiosk Counter</b><button id="t1" class="on">Orders</button><button id="t2" class="g">Summary</button><button id="t3" class="g">Settings</button><span style="flex:1"></span><span id="st" style="color:var(--m)"></span><button class="g" id="th" title="Day / Dark (default: sumusunod sa OmniPOS)">🌙</button><button class="g" id="lo">Logout</button></header>
+<aside class="side"><div class="sb-brand"><svg class="mk" viewBox="112 112 287 287" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M274.2 373.5A119.5 119.5 0 1 1 374.1 270.1" stroke="currentColor" stroke-width="48" stroke-linecap="round" fill="none"/><circle cx="340.3" cy="340.3" r="26" fill="url(#omni-brand-grad)"/></svg><div>Kiosk Counter<small>OMNIPOS</small></div></div>
+<nav class="sb-menu"><div class="sb-label">Counter</div>
+<button id="t1" class="on"><i class="fa-solid fa-receipt"></i><span class="lb">Orders</span><em class="nb hide" id="nb">0</em></button>
+<button id="t2" class="g"><i class="fa-solid fa-chart-line"></i><span class="lb">Summary</span></button>
+<button id="t3" class="g"><i class="fa-solid fa-sliders"></i><span class="lb">Settings</span></button></nav>
+<div class="sb-foot"><b>Self-Order Kiosk</b>Orders refresh automatically every 3 seconds.</div></aside>
+<div class="mainc">
+<div class="top"><b id="vt">Orders</b><span id="st"></span><span class="pill" id="ck"></span>
+<button class="ib" id="snd" title="Sound alerts on/off" aria-label="Sound"><i class="fa-solid fa-volume-high"></i></button>
+<button class="ib" id="fs" title="Fullscreen" aria-label="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+<button class="ib" id="th" title="Day / Dark (default: follows OmniPOS)">🌙</button>
+<button class="ib" id="lo" title="Logout" aria-label="Logout"><i class="fa-solid fa-right-from-bracket"></i></button></div>
 <div id="grace" class="hide"></div>
 <main>
  <section id="lock"></section>
- <section id="v1"><div class="cards" id="cards"></div></section>
- <section id="v2" class="hide"><div class="box"><div class="stat" id="stat"></div></div><div class="box"><h3 id="toph">Top items ngayon</h3><div id="top"></div></div><div class="box" id="hotbox"><h3>🔥 Best sellers (huling 30 araw)</h3><div id="hotl"></div></div></section>
+ <section id="v1"><div class="kpis" id="kpis"></div>
+  <div class="tools"><input type="text" id="qs" placeholder="Search: order #, table, name, item…" autocomplete="off"><div class="chips" id="chips"></div></div>
+  <div class="cards" id="cards"></div></section>
+ <section id="v2" class="hide"><div class="box"><div class="stat" id="stat"></div></div><div class="box"><h3 id="toph">Top items today</h3><div id="top"></div></div><div class="box" id="hotbox"><h3>🔥 Best sellers (last 30 days)</h3><div id="hotl"></div></div></section>
  <section id="v3" class="hide"></section>
-</main></div>
+</main></div></div>
 <script>
 const $=s=>document.querySelector(s);const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* Wording per business type: a service business (parlor/laundry/repair) works with bookings and a schedule, not a kitchen. */
 const LBL={
- def:{orders:'Orders',prep:'🍳 Preparing',ready:'✅ Ready',done:'💰 Paid / Done',empty:'Walang bukas na order. Maghihintay ng bagong order…',sum:'Orders ngayon',sales:'Benta (kiosk)',top:'Top items ngayon',none:'Wala pang order.'},
- service:{orders:'Bookings',prep:'🛠 In progress',ready:'✅ Ready / Done',done:'💰 Paid / Done',empty:'Walang bukas na booking. Maghihintay ng bagong booking…',sum:'Bookings ngayon',sales:'Benta (kiosk)',top:'Top services ngayon',none:'Wala pang booking.'}
+ def:{orders:'Orders',prep:'🍳 Preparing',ready:'✅ Ready',done:'💰 Paid / Done',recv:'📦 Received',empty:'No open orders. Waiting for new orders…',sum:'Orders today',sales:'Sales (kiosk)',top:'Top items today',none:'No orders yet.'},
+ service:{orders:'Bookings',prep:'🛠 In progress',ready:'✅ Ready / Done',done:'💰 Paid / Done',recv:'📦 Received',empty:'No open bookings. Waiting for new bookings…',sum:'Bookings today',sales:'Sales (kiosk)',top:'Top services today',none:'No bookings yet.'}
 };
 const FIT={
- general:'Pangkalahatan: self-order at price check.',
- restaurant:'Pinakaangkop: self-order, options/add-ons, upsell, Order Status board.',
- minimart:'Angkop: Price Check at pick-up order; hindi kailangan ang kusina/board.',
- sari:'Angkop: Price Check lang (i-off ang self-order).',
- service:'Angkop: listahan ng serbisyo at presyo, booking/check-in, at Schedule Status (ongoing / ready). Hindi ito stock-based na self-checkout.',
- pharmacy:'Angkop: Price Check at pick-up order (may paalala sa reseta).',
- hardware:'Angkop: Price Check, order/quote, pick-up o delivery.'
+ general:'General: self-order and price check.',
+ restaurant:'Best fit: self-order, options/add-ons, upsell, Order Status board.',
+ minimart:'Good fit: Price Check and pick-up orders; no kitchen/board needed.',
+ sari:'Good fit: Price Check only (turn self-order off).',
+ service:'Good fit: service and price list, booking/check-in and Schedule Status (ongoing / ready). Not a stock-based self-checkout.',
+ pharmacy:'Good fit: Price Check and pick-up orders (with a prescription reminder).',
+ hardware:'Good fit: Price Check, order/quote, pick-up or delivery.'
 };
 let BIZC='general';
 const L=()=>LBL[BIZC==='service'?'service':'def'];
 const apptOf=o=>{if(o&&o.appt&&o.appt.date)return {d:o.appt.date,t:o.appt.time||'',k:o.appt.date+' '+(o.appt.time||'00:00')};const m=/Appt:(\d{4}-\d\d-\d\d)(?: (\d\d:\d\d))?/.exec((o&&o.note)||'');return m?{d:m[1],t:m[2]||'',k:m[1]+' '+(m[2]||'00:00')}:null};
-const cleanNote=o=>String((o&&o.note)||'').replace(/Appt:\d{4}-\d\d-\d\d(?: \d\d:\d\d)?/,'').split('|').map(x=>x.trim()).filter(Boolean).join(' | ');
+const cleanNote=o=>String((o&&o.note)||'').replace(/Appt:\d{4}-\d\d-\d\d(?: \d\d:\d\d)?/,'').split('|').map(x=>x.trim()).filter(x=>x&&!/^(Pax|Allergy)\s*:/i.test(x)).join(' | '); // party size and allergy are shown in their own badges
+// Structured fields saved by the server; fall back to parsing the note for orders placed before they existed.
+const orderAllergy=o=>String((o&&o.allergy)||'').trim()||((String((o&&o.note)||'').match(/Allergy\s*:\s*([^|;]+)/i)||[])[1]||'').trim();
+const orderPax=o=>{const n=parseInt(o&&o.pax,10);if(n>0)return String(n);const m=String((o&&o.note)||'').match(/(?:^|[|;\s])Pax\s*:\s*(\d+)/i);return m?m[1]:''};
+// Per-dish kitchen progress (Kitchen Kiosk). Orders from before the kitchen workflow inherit their state from the order status.
+function kitchenProgress(o){
+ if(BIZC!=='restaurant'||!o||!Array.isArray(o.items)||!o.items.length)return null;
+ const inh=o.status==='ready'||o.status==='done'?'ready':o.status==='preparing'?'preparing':'new';let r=0,p=0,sig='';
+ o.items.forEach(i=>{const k=['new','preparing','ready'].includes(i&&i.kitchenStatus)?i.kitchenStatus:inh;if(k==='ready'){r++;sig+='R'}else if(k==='preparing'){p++;sig+='P'}else sig+='N'});
+ return {r,p,n:o.items.length,sig};
+}
 const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const t12=hm=>{if(!hm)return '';const a=hm.split(':'),h=+a[0]||0;return ((h%12)||12)+':'+(a[1]||'00')+' '+(h<12?'AM':'PM')};
-function apptLabel(a){const n=new Date(),tm=new Date(n.getFullYear(),n.getMonth(),n.getDate()+1);const day=a.d===ymd(n)?'Ngayon':a.d===ymd(tm)?'Bukas':new Date(a.d+'T12:00:00').toLocaleDateString('fil-PH',{weekday:'short',month:'short',day:'numeric'});return day+(a.t?' · '+t12(a.t):'')}
-/* Theme: sumusunod sa OmniPOS (localStorage 'omnipos_theme': 'day' = day mode, iba pa = dark). Ang 🌙/☀️ button ay pansamantalang override sa counter na ito. */
+function apptLabel(a){const n=new Date(),tm=new Date(n.getFullYear(),n.getMonth(),n.getDate()+1);const day=a.d===ymd(n)?'Today':a.d===ymd(tm)?'Tomorrow':new Date(a.d+'T12:00:00').toLocaleDateString('en-PH',{weekday:'short',month:'short',day:'numeric'});return day+(a.t?' · '+t12(a.t):'')}
+/* Theme: follows OmniPOS (localStorage 'omnipos_theme': 'day' = day mode, anything else = dark). The 🌙/☀️ button is a temporary override for this counter. */
 function isDarkNow(){try{const o=localStorage.getItem('kc_theme');if(o==='day'||o==='dark')return o==='dark';let t=localStorage.getItem('omnipos_theme');if(!t)t=localStorage.getItem('omnipos_darkmode')==='true'?'dark':'day';return t!=='day'}catch(e){return false}}
 function applyTheme(){document.documentElement.classList.toggle('dark',isDarkNow());const b=document.getElementById('th');if(b)b.textContent=isDarkNow()?'☀️':'🌙'}
 document.getElementById('th').onclick=()=>{try{localStorage.setItem('kc_theme',isDarkNow()?'day':'dark')}catch(e){}applyTheme()};
 addEventListener('storage',e=>{if(e.key==='omnipos_theme'||e.key==='omnipos_darkmode'){try{localStorage.removeItem('kc_theme')}catch(x){}applyTheme()}});applyTheme();
-let TOKEN=sessionStorage.getItem('kc_tok')||'',ME=null,tab=1,orders=[],lastIds='',CFGX=null,PRODS=[],LOCKED=false,LIC=null;
+/* lastIds: null = "force a re-render" (an EMPTY order list also has ids==='' so '' cannot be the reset value, otherwise closing the last order never repaints) */
+let TOKEN=sessionStorage.getItem('kc_tok')||'',ME=null,tab=1,orders=[],lastIds=null,CFGX=null,PRODS=[],LOCKED=false,LIC=null;
 const peso=n=>'₱'+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2});
 async function api(m,p,b){const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+TOKEN},body:b?JSON.stringify(b):undefined});if(r.status===401){logout();throw new Error('401')}
  const j=await r.json();if(r.status===402&&j&&j.featureLocked){showLock(j);throw new Error('LOCKED')}return j}
@@ -95,7 +276,7 @@ function renderLock(j){
  $('#lchk').onclick=async()=>{$('#lmsg').textContent='Checking…';await checkLicense();if(LOCKED)$('#lmsg').textContent='Still not activated.'};
 }
 function showLock(j){LOCKED=true;$('#app').classList.add('locked');$('#grace').classList.add('hide');renderLock(j)}
-function hideLock(){if(!LOCKED)return;LOCKED=false;$('#app').classList.remove('locked');lastIds='';poll();if(tab===2)loadSummary().catch(()=>{});if(tab===3)loadSettings().catch(()=>{})}
+function hideLock(){if(!LOCKED)return;LOCKED=false;$('#app').classList.remove('locked');lastIds=null;poll();if(tab===2)loadSummary().catch(()=>{});if(tab===3)loadSettings().catch(()=>{})}
 function renderGrace(j){
  const g=$('#grace');
  if(j&&j.inGracePeriod){g.textContent='⚠ Your Self-Order Kiosk subscription has expired. It keeps working until '+(j.graceEndsAt?new Date(j.graceEndsAt).toLocaleDateString():'the end of the grace period')+'. Renew it in OMNIPOS to avoid interruption.';g.classList.remove('hide')}
@@ -111,30 +292,96 @@ async function checkLicense(){
 function logout(){TOKEN='';sessionStorage.removeItem('kc_tok');$('#app').classList.add('hide');$('#login').classList.remove('hide')}
 $('#lo').onclick=logout;
 $('#lb').onclick=async()=>{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('#u').value,password:$('#p').value})});const j=await r.json().catch(()=>({}));
- if(j.token){TOKEN=j.token;ME=j.user;sessionStorage.setItem('kc_tok',TOKEN);start()}else $('#lm').textContent=j.message||'Hindi nakapag-login (kung may OTP ang account, gumamit ng ibang user).'};
-function applyLabels(){const l=L();$('#t1').textContent=l.orders;lastIds='';if(tab===1)renderOrders()}
+ if(j.token){TOKEN=j.token;ME=j.user;sessionStorage.setItem('kc_tok',TOKEN);start()}else $('#lm').textContent=j.message||'Login failed (if the account uses OTP, use a different user).'};
+function setVT(){const t=$('#vt');if(t)t.textContent=[L().orders,'Summary','Settings'][tab-1]||''}
+function applyLabels(){const l=L();$('#t1 .lb').textContent=l.orders;setVT();lastIds=null;if(tab===1)renderOrders()}
 async function loadBiz(){try{const c=await api('GET','/api/kiosk/config');BIZC=(c.config&&c.config.businessType)||'general';applyLabels()}catch(e){/* locked or offline */}}
-function show(n){tab=n;[1,2,3].forEach(i=>{$('#v'+i).classList.toggle('hide',i!==n);$('#t'+i).className=i===n?'on':'g'});if(n===2)loadSummary().catch(()=>{});if(n===3)loadSettings().catch(()=>{})}
+function show(n){tab=n;setVT();[1,2,3].forEach(i=>{$('#v'+i).classList.toggle('hide',i!==n);$('#t'+i).className=i===n?'on':'g'});if(n===2)loadSummary().catch(()=>{});if(n===3)loadSettings().catch(()=>{})}
 [1,2,3].forEach(i=>$('#t'+i).onclick=()=>show(i));
-function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.connect(a.destination);o.frequency.value=880;o.start();setTimeout(()=>o.stop(),180)}catch(e){}}
-async function poll(){if(!TOKEN||tab!==1||LOCKED)return;try{const j=await api('GET','/api/kiosk/orders?status=open');orders=j.orders||[];const ids=orders.map(o=>o.id+o.status).join();
-  if(ids!==lastIds){const newer=orders.filter(o=>o.status==='new').length;if(lastIds!==''&&newer>(lastIds.match(/new/g)||[]).length)beep();lastIds=ids;renderOrders()}
+let SND=true;try{SND=localStorage.getItem('kc_snd')!=='0'}catch(e){}
+function paintSnd(){const b=$('#snd');if(!b)return;b.innerHTML=`<i class="fa-solid ${SND?'fa-volume-high':'fa-volume-xmark'}"></i>`;b.classList.toggle('off',!SND)}
+$('#snd').onclick=()=>{SND=!SND;try{localStorage.setItem('kc_snd',SND?'1':'0')}catch(e){}paintSnd();if(SND)beep()};paintSnd();
+$('#fs').onclick=()=>{try{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()}catch(e){}};
+document.addEventListener('fullscreenchange',()=>{const b=$('#fs');if(b)b.innerHTML=`<i class="fa-solid ${document.fullscreenElement?'fa-compress':'fa-expand'}"></i>`});
+function beep(){if(!SND)return;try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.connect(a.destination);o.frequency.value=880;o.start();setTimeout(()=>o.stop(),180)}catch(e){}}
+async function poll(){if(!TOKEN||tab!==1||LOCKED)return;try{const j=await api('GET','/api/kiosk/orders?status=open');orders=j.orders||[];const ids=orders.map(o=>o.id+o.status+(o.txId?'$':'')+(o.table||'')+((kitchenProgress(o)||{}).sig?'#'+kitchenProgress(o).sig:'')+(o.allergy||'')).join();
+  if(ids!==lastIds){const newer=orders.filter(o=>o.status==='new').length;if(lastIds!==null&&newer>(lastIds.match(/new/g)||[]).length)beep();lastIds=ids;renderOrders()}
   $('#st').textContent='● live';}catch(e){if(!e||e.message!=='LOCKED')$('#st').textContent='offline'}}
 let DEVPIN='';
+let FILTER='all',QUERY='',seenIds=new Set(),firstPaint=true;
+const FDEF=[['all','All'],['unpaid','⏳ Unpaid'],['paid','💳 Paid'],['ready','✅ Ready'],['table','🪑 With table']];
+const matchF=(o,f)=>f==='all'||(f==='unpaid'&&!o.txId)||(f==='paid'&&!!o.txId)||(f==='ready'&&o.status==='ready')||(f==='table'&&!!o.table);
+function elapsed(o){const m=Math.max(0,Math.floor((Date.now()-Date.parse(o.createdAt))/60000));return {m,txt:m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+' min',cls:m>=15?'x':m>=8?'w':''}}
+function stepper(o){const st=o.status,paid=!!o.txId;const steps=[['New',st==='new'?'c':'d'],[BIZC==='service'?'Ongoing':'Preparing',st==='preparing'?'c':(st==='ready'?'d':'')],['Ready',st==='ready'?'c':''],[paid?'Paid ✔':'Paid',paid?'d':''],['Received','']];return `<div class="stp">${steps.map(x=>`<span class="${x[1]}">${x[0]}</span>`).join('')}</div>`}
 function renderOrders(){
  if(BIZC==='service')orders=orders.slice().sort((a,b)=>{const x=apptOf(a),y=apptOf(b);if(x&&y)return x.k<y.k?-1:x.k>y.k?1:0;if(x)return -1;if(y)return 1;return 0});
  const l=L();
- $('#cards').innerHTML=orders.length?orders.map(o=>`<div class="o ${o.status}"><h3><span>#${esc(o.orderNo)}</span><span>${peso(o.total)}</span></h3>
-  <small>${esc(o.orderType)}${o.customerName?' · '+esc(o.customerName):''}${o.table?' · Table '+esc(o.table):''}${o.phone?' · '+esc(o.phone):''} · ${new Date(o.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · <b>${esc(o.status)}</b>${o.txId?' · <b>💳 Paid</b> <span title="POS transaction">'+esc(o.txId)+'</span>':' · <b>⏳ Unpaid</b>'}</small>
+ // KPI + chips (computed from all open orders, not the filtered list)
+ const nU=orders.filter(o=>!o.txId).length,nP=orders.filter(o=>o.txId).length,nR=orders.filter(o=>o.status==='ready').length,nPR=orders.filter(o=>o.txId&&o.status==='ready').length;
+ const nNew=orders.filter(o=>o.status==='new').length,oldM=orders.reduce((m,o)=>Math.max(m,elapsed(o).m),0);
+ const nbE=$('#nb');if(nbE){nbE.textContent=nNew;nbE.classList.toggle('hide',!nNew)}document.title=(nNew?'('+nNew+') ':'')+'Kiosk Counter · OMNIPOS';
+ $('#kpis').innerHTML=`<div class="kpi"><i class="fa-solid fa-receipt"></i><div><small>Open</small><b>${orders.length}</b></div></div><div class="kpi a"><i class="fa-solid fa-hourglass-half"></i><div><small>Unpaid</small><b>${nU}</b></div></div><div class="kpi p"><i class="fa-solid fa-credit-card"></i><div><small>Paid, not received</small><b>${nP}</b></div></div><div class="kpi r"><i class="fa-solid fa-bag-shopping"></i><div><small>Ready for pickup</small><b>${nPR}</b></div></div><div class="kpi ${oldM>=15?'x':''}"><i class="fa-solid fa-stopwatch"></i><div><small>Longest wait</small><b>${orders.length?oldM+'m':'—'}</b></div></div>`;
+ $('#chips').innerHTML=FDEF.map(f=>`<button type="button" class="chip ${FILTER===f[0]?'on':''}" data-f="${f[0]}">${f[1]}<i>${orders.filter(o=>matchF(o,f[0])).length}</i></button>`).join('');
+ document.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{FILTER=b.dataset.f;renderOrders()});
+ const q=QUERY.trim().toLowerCase();
+ let list=orders.filter(o=>matchF(o,FILTER)&&(!q||[o.orderNo,o.table&&('table '+o.table),o.table,o.customerName,o.phone,o.txId,o.items.map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)));
+ // Paid + Ready first (ready to hand over), then the longest-waiting orders
+ if(BIZC!=='service')list=list.slice().sort((a,b)=>((b.txId&&b.status==='ready')?1:0)-((a.txId&&a.status==='ready')?1:0)||Date.parse(a.createdAt)-Date.parse(b.createdAt));
+ $('#cards').innerHTML=list.length?list.map(o=>{const e=elapsed(o);return `<div class="o ${o.status}${o.txId?' paid':''}${e.cls==='x'&&o.status!=='ready'?' late':''}${CLOSING.has(o.id)?' closing':''}${!firstPaint&&!seenIds.has(o.id)?' pulse':''}" data-oid="${esc(o.id)}"><h3><span class="no">#${esc(o.orderNo)}</span><span>${peso(o.total)}</span></h3>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${o.txId?'<span class="pdb">💳 PAID</span>':'<span class="upb">⏳ Unpaid</span>'}<span class="el ${e.cls}" title="Time since the order was placed">⏱ ${e.txt}</span>${o.table?`<span class="tbl" style="margin:0">🪑 Table ${esc(o.table)}</span>`:''}${orderPax(o)?`<span class="el" title="Party size">👥 ${esc(orderPax(o))}</span>`:''}${(()=>{const k=kitchenProgress(o);return k?`<span class="el ${k.r===k.n?'':(k.p||k.r?'w':'')}" title="Dishes marked Ready by the kitchen">🍳 ${k.r}/${k.n} ready${k.p?' · '+k.p+' cooking':''}</span>`:''})()}</div>
+  ${orderAllergy(o)?`<div class="alg">⚠️ Allergy / special request: <b>${esc(orderAllergy(o))}</b></div>`:''}
+  <small style="display:block;margin-top:6px">${esc(o.orderType)}${o.customerName?' · '+esc(o.customerName):''}${o.phone?' · '+esc(o.phone):''} · ${new Date(o.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · <b>${esc(o.status)}</b>${o.txId?' · <span title="POS transaction">'+esc(o.txId)+'</span>':''}</small>
+  ${o.txId&&o.status!=='ready'?`<div class="pw">💳 Already paid — ${o.status==='new'?'not started yet':'still being prepared'}. Press Ready when it is done.</div>`:''}
+  ${stepper(o)}
   ${apptOf(o)?`<div style="margin:6px 0;font-weight:700;color:var(--warnt)">📅 ${esc(apptLabel(apptOf(o)))}</div>`:''}
   <ul>${o.items.map(i=>`<li><b>${i.qty}×</b> ${esc(i.name)}${i.unit?' ('+esc(i.unit)+')':''}${i.options.length?' <small>['+esc(i.options.map(x=>x.name).join(', '))+']</small>':''}${i.note?' <small>📝 '+esc(i.note)+'</small>':''}</li>`).join('')}</ul>
   ${cleanNote(o)?`<div>📝 ${esc(cleanNote(o))}</div>`:''}
   <div class="acts">${o.status==='new'?`<button data-a="preparing" data-id="${o.id}">${l.prep}</button>`:''}${o.status!=='ready'?`<button class="k" data-a="ready" data-id="${o.id}">${l.ready}</button>`:''}
-  <button class="g" data-a="done" data-id="${o.id}">${o.txId?'✔ Done':l.done}</button>${o.txId?'':`<button class="r" data-a="cancelled" data-id="${o.id}">✖</button>`}</div></div>`).join(''):`<div class="empty">${l.empty}</div>`;
- document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{if(b.dataset.a==='cancelled'&&!confirm('I-cancel ang order?'))return;const oo=orders.find(x=>x.id===b.dataset.id);if(b.dataset.a==='done'&&oo&&!oo.txId&&!confirm('Hindi pa ito na-scan/nabayaran sa POS, kaya walang mababawas na stock. Isara pa rin ang order?'))return;await api('POST','/api/kiosk/orders/'+b.dataset.id+'/status',{status:b.dataset.a});lastIds='';poll()});
+  ${o.txId?`<button class="${o.status==='ready'?'k':'g'}" data-a="done" data-recv="1" data-id="${o.id}" ${o.status==='ready'?'':'style="opacity:.65"'}>${l.recv}</button>`:`<button class="g" data-a="done" data-id="${o.id}">${l.done}</button><span class="sp"></span><button class="r" data-a="cancelled" data-id="${o.id}">✖</button>`}</div></div>`}).join(''):`<div class="empty">${orders.length?'No orders match the filter/search.':l.empty}</div>`;
+ if(orders.length){orders.forEach(o=>seenIds.add(o.id));firstPaint=false}
+ document.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>act(b));
 }
-async function loadSummary(){const j=await api('GET','/api/kiosk/summary');$('#stat').innerHTML=`<div><small>${L().sum}</small><b>${j.orders}</b></div><div><small>Benta (kiosk)</small><b>${peso(j.sales)}</b></div><div><small>Bukas pa</small><b>${j.open}</b></div><div><small>Cancelled</small><b>${j.cancelled}</b></div>${j.wait?`<div><small>⏱ Hintay ngayon</small><b>~${j.wait.minutes} min</b></div>`:''}`;
- $('#hotl').innerHTML=(j.hot&&j.hot.length)?j.hot.map(h=>`<span class="hot">🔥 ${esc(h.name)}</span>`).join(''):`<div class="muted">Wala pa. Lalabas dito ang mga item na may hindi bababa sa 3 benta sa kiosk sa nakaraang 30 araw.</div>`;
+
+/* ---------- Safety: confirm modal, undo, double-tap & stale-screen guards ---------- */
+const BUSY=new Set(),CLOSING=new Map();
+function askConfirm(o){return new Promise(res=>{const m=document.createElement('div');m.className='mdl';m.setAttribute('role','dialog');m.setAttribute('aria-modal','true');
+ m.innerHTML=`<div class="bx"><h3>${o.title}</h3><div class="sm">${o.sum||''}</div>${(o.warns||[]).map(w=>`<div class="wn">⚠ ${w}</div>`).join('')}<div class="bt"><button type="button" class="g" id="mc">No / Go back</button><button type="button" class="${o.danger?'r':'k'}" id="mo">${o.ok}</button></div></div>`;
+ document.body.appendChild(m);const done=v=>{document.removeEventListener('keydown',kd,true);m.remove();res(v)};
+ const kd=e=>{if(e.key==='Escape'){e.preventDefault();done(false)}};document.addEventListener('keydown',kd,true);
+ m.querySelector('#mc').onclick=()=>done(false);m.querySelector('#mo').onclick=()=>done(true);m.onclick=e=>{if(e.target===m)done(false)};
+ m.querySelector('#mc').focus()})} // "No / Go back" is focused so an accidental Enter cannot trigger the risky action
+function toast(msg,ms,undo){const box=$('#toasts'),t=document.createElement('div');t.className='tst';t.innerHTML=`<span>${msg}</span>${undo?'<button type="button">↩ Undo</button>':''}<i class="bar" style="animation-duration:${ms}ms"></i>`;box.appendChild(t);
+ let fin=false;const end=()=>{if(fin)return;fin=true;clearTimeout(tm);t.remove()};const tm=setTimeout(()=>{end();if(undo&&undo.expire)undo.expire()},ms);
+ if(undo)t.querySelector('button').onclick=()=>{end();undo.run()};return end}
+const sumHtml=o=>`<b>#${esc(o.orderNo)}</b> · ${peso(o.total)}${o.table?' · 🪑 Table '+esc(o.table):''}${o.customerName?' · '+esc(o.customerName):''}<br><small>${o.items.map(i=>i.qty+'× '+esc(i.name)).join(', ')}</small><br>${o.txId?'💳 Paid':'⏳ Not paid yet'} · ${esc(o.status)}`;
+async function send(id,body){const r=await api('POST','/api/kiosk/orders/'+id+'/status',body);if(r&&r.success===false){toast('✗ '+esc(r.message||'The order could not be updated.'),r.stale?7000:5000);}lastIds=null;poll();return r}
+async function act(b){
+ const id=b.dataset.id,a=b.dataset.a,recv=!!b.dataset.recv,oo=orders.find(x=>x.id===id);
+ if(!oo||BUSY.has(id)||CLOSING.has(id))return;      // double-tap guard
+ BUSY.add(id);b.disabled=true;
+ try{
+  const prev=oo.status;
+  if(a==='preparing'||a==='ready'){                    // easy to reverse: runs immediately, with Undo
+   const r=await send(id,{status:a,expectedStatus:prev});
+   if(r&&r.success!==false)toast(`#${esc(oo.orderNo)} → <b>${a}</b>`,6000,{run:()=>send(id,{status:prev,expectedStatus:a})});
+   return}
+  // Closing actions (Received / Paid-Done / Cancel): confirm AND a 6s Undo before it is really sent
+  const warns=[];let title,ok,danger=false,body;
+  if(a==='cancelled'){title='Cancel this order?';ok='Yes, cancel';danger=true;body={status:'cancelled',expectedStatus:prev};if(oo.items.length)warns.push('This cannot be undone.')}
+  else if(recv){title='Has the customer received the order?';ok='📦 Yes, Received';body={status:'done',received:true,expectedStatus:prev};if(prev!=='ready')warns.push('The order is not Ready yet (status: '+esc(prev)+'). Make sure it is ready before handing it over.')}
+  else{title='Close this order?';ok='Yes, Paid / Done';body={status:'done',expectedStatus:prev};if(!oo.txId)warns.push('This has not been scanned/paid in the POS, so no stock will be deducted and no receipt will be issued.')}
+  if(!await askConfirm({title,ok,danger,sum:sumHtml(oo),warns}))return;
+  CLOSING.set(id,1);renderOrders();
+  toast(`#${esc(oo.orderNo)} will be removed from the counter…`,6000,{run:()=>{CLOSING.delete(id);renderOrders()},expire:async()=>{await send(id,body);CLOSING.delete(id);renderOrders()}});
+ }finally{BUSY.delete(id);b.disabled=false}
+}
+$('#qs').addEventListener('input',e=>{QUERY=e.target.value;renderOrders()});
+setInterval(()=>{if(tab===1&&!LOCKED&&orders.length&&document.activeElement!==$('#qs'))renderOrders()},30000); // refresh the waiting time
+setInterval(()=>{if(tab===1&&!LOCKED&&SND&&orders.some(o=>o.status==='new'&&elapsed(o).m>=2))beep()},45000); // reminder while an order is still untouched
+function tick(){const e=$('#ck');if(e)e.textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}setInterval(tick,15000);tick();
+document.addEventListener('keydown',e=>{const t=e.target&&e.target.tagName;if(e.key==='/'&&t!=='INPUT'&&t!=='TEXTAREA'&&t!=='SELECT'&&tab===1&&!LOCKED){e.preventDefault();const q=$('#qs');if(q)q.focus()}else if(e.key==='Escape'&&e.target===$('#qs')){QUERY='';e.target.value='';renderOrders();e.target.blur()}});
+async function loadSummary(){const j=await api('GET','/api/kiosk/summary');$('#stat').innerHTML=`<div><small>${L().sum}</small><b>${j.orders}</b></div><div><small>Sales (kiosk)</small><b>${peso(j.sales)}</b></div><div><small>Still open</small><b>${j.open}</b></div><div><small>Cancelled</small><b>${j.cancelled}</b></div>${j.wait?`<div><small>⏱ Wait now</small><b>~${j.wait.minutes} min</b></div>`:''}`;
+ $('#hotl').innerHTML=(j.hot&&j.hot.length)?j.hot.map(h=>`<span class="hot">🔥 ${esc(h.name)}</span>`).join(''):`<div class="muted">None yet. Items with at least 3 kiosk sales in the last 30 days will appear here.</div>`;
  $('#top').innerHTML=j.top.length?j.top.map(t=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--l)"><span>${esc(t.name)}</span><span>${t.qty} pcs · ${peso(t.sales)}</span></div>`).join(''):`<div class="empty">${L().none}</div>`;$('#toph').textContent=L().top}
 function optsToText(opts){return Object.keys(opts||{}).map(code=>{const p=PRODS.find(x=>String(x.code)===code);return '# '+code+' '+(p?p.name:'')+'\n'+opts[code].map(g=>`${g.name}${g.required?'*':''}${g.type==='multi'?' (multi)':''}: ${g.choices.map(c=>c.name+'='+c.price).join(', ')}`).join('\n')}).join('\n\n')}
 function textToOpts(txt){const out={};let cur=null;txt.split('\n').forEach(line=>{line=line.trim();if(!line)return;if(line[0]==='#'){cur=line.slice(1).trim().split(/\s+/)[0];out[cur]=[];return}if(!cur)return;
@@ -146,30 +393,30 @@ async function loadSettings(){
  const admin=ME&&String(ME.role).toLowerCase()==='admin';const m=CFGX.modes;
  const flag=(k,l)=>`<label class="chk"><input type="checkbox" id="c_${k}" ${CFGX[k]?'checked':''}> ${l}</label>`;
  const pl=(k)=>PRODS.map(x=>`<div><span>${esc(x.name)} <small style="color:var(--m)">${esc(x.code)}</small></span><label><input type="checkbox" data-k="${k}" value="${esc(x.code)}" ${(CFGX[k]||[]).includes(String(x.code))?'checked':''}> </label></div>`).join('');
- $('#v3').innerHTML=(admin?'':'<div class="box" style="background:var(--graceb)">Admin lang ang makaka-save ng settings.</div>')+`
- <div class="box"><h3>Negosyo</h3><div class="row"><div><label>Pangalan ng store</label><input type="text" id="c_storeName" value="${esc(CFGX.storeName)}"></div><div><label>Tagline</label><input type="text" id="c_tagline" value="${esc(CFGX.tagline)}"></div></div>
- <div class="row"><div><label>Uri ng negosyo (nagtatakda ng buttons, order types at checkout rules)</label><select id="c_businessType" ${DEVPIN?'':'disabled'}>${[['general','General / Kahit ano'],['restaurant','Restaurant / Kainan (Dine-in, Table)'],['minimart','Mini-mart / Grocery'],['sari','Sari-sari store'],['service','Serbisyo (Parlor / Repair / Laundry)'],['pharmacy','Parmasya'],['hardware','Hardware / Wholesale']].map(x=>`<option value="${x[0]}" ${CFGX.businessType===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select> <button type="button" id="dvu" style="margin-top:6px">${DEVPIN?'🔓 Naka-unlock (Developer)':'🔒 I-unlock (Developer PIN)'}</button><div style="color:var(--m);font-size:.85em">Developer lang ang makakapagpalit ng uri ng negosyo.</div><div id="fit" style="margin-top:6px;font-size:.9em;font-weight:600">${esc(FIT[CFGX.businessType]||FIT.general)}</div></div>
- <div><label>Kulay ng kiosk</label><select id="c_brandMode"><option value="omni" ${CFGX.brandColor?'':'selected'}>Kulay ng OmniPOS (day / dark)</option><option value="custom" ${CFGX.brandColor?'selected':''}>Sariling kulay</option></select><div style="margin-top:6px"><input type="color" id="c_brandColor" value="${esc(CFGX.brandColor||'#2563eb')}" ${CFGX.brandColor?'':'disabled'}></div></div><div><label>Wika</label><select id="c_language"><option value="tl" ${CFGX.language==='tl'?'selected':''}>Tagalog</option><option value="en" ${CFGX.language==='en'?'selected':''}>English</option></select></div></div></div>
- <div class="box"><h3>Mga mode sa kiosk</h3><label class="chk"><input type="checkbox" id="m_order" ${m.order?'checked':''}> Self-order</label><label class="chk"><input type="checkbox" id="m_priceCheck" ${m.priceCheck?'checked':''}> Price check / scan</label><label class="chk"><input type="checkbox" id="m_queueBoard" ${m.queueBoard?'checked':''}> Order status board (para sa TV)</label>
- <p style="color:var(--m);margin:4px 0 0">Sari-sari/mini-mart na ayaw ng self-order? I-off ang Self-order at i-on ang Price check.</p></div>
- <div class="box" id="bx_wait"><h3>🔥 Best sellers at ⏱ Tinatayang hintay</h3>${flag('bestSellers','Ipakita ang 🔥 Patok (best seller) na tag at kategorya sa kiosk')}${flag('showWait','Ipakita ang tinatayang hintay (home, cart at order number)')}
- <div class="row"><div><label>Default na minuto bawat order</label><input type="number" id="c_prepMinutes" min="1" max="120" value="${CFGX.prepMinutes}"></div><div><label>Ilang order ang sabay na naihahanda</label><input type="number" id="c_stations" min="1" max="20" value="${CFGX.stations}"></div></div>
- <p class="muted" style="margin:6px 0 0">Ang best seller ay galing sa benta ng kiosk sa nakaraang 30 araw (hindi bababa sa 3 piraso). Ang hintay ay (mga order na hindi pa Ready + 1) × bilis ÷ sabay na naihahanda. Kapag may 3+ natapos na order, ang aktwal na bilis (Preparing → Ready) na ang gagamitin sa halip na ang default.</p></div>
- <div class="box" id="bx_slots"><h3>📅 Booking slots (serbisyo / appointment)</h3>
- <div class="row"><div><label>Bukas (oras)</label><input type="time" id="c_slotOpen" value="${esc(CFGX.slotOpen)}"></div><div><label>Sara (oras)</label><input type="time" id="c_slotClose" value="${esc(CFGX.slotClose)}"></div><div><label>Haba ng slot (minuto)</label><input type="number" id="c_slotMinutes" min="10" max="240" value="${CFGX.slotMinutes}"></div></div>
- <div class="row"><div><label>Ilang booking bawat slot</label><input type="number" id="c_slotCapacity" min="1" max="50" value="${CFGX.slotCapacity}"></div><div><label>Ilang araw ang pwedeng i-book (kasama ngayon)</label><input type="number" id="c_slotDays" min="1" max="60" value="${CFGX.slotDays}"></div><div><label>Minimum na minuto bago ang slot</label><input type="number" id="c_slotLead" min="0" max="600" value="${CFGX.slotLead}"></div></div>
- <p class="muted" style="margin:6px 0 0">Ang mga bakanteng oras ay kinukuwenta ng server. Ang bukas na booking lang (New / Preparing / Ready) ang bumibilang; kapag Done o Cancelled, bakante ulit ang slot.</p></div>
- <div class="box"><h3>Order</h3><label>Order types (hiwalay ng kuwit)</label><input type="text" id="c_orderTypes" value="${esc(CFGX.orderTypes.join(', '))}">
- ${flag('askName','Hingin ang pangalan')}${flag('askPhone','Hingin ang cellphone no.')}${CFGX.businessType==='restaurant'?flag('askTable','Hingin ang table no.'):''}${flag('orderNote','Payagan ang note sa order/item')}${flag('showStock','Ipakita ang natitirang stock')}${flag('hideOutOfStock','Itago ang ubos na item')}${flag('upsell','Mag-alok ng "Dagdag pa?" bago mag-checkout')}
- <div class="row"><div><label>Max dami bawat line</label><input type="number" id="c_maxQtyPerLine" value="${CFGX.maxQtyPerLine}"></div><div><label>Idle reset (segundo)</label><input type="number" id="c_idleSeconds" value="${CFGX.idleSeconds}"></div></div></div>
- <div class="box"><h3>Mga item</h3><div class="row"><div><b>Itago sa kiosk</b><div class="plist">${pl('hiddenCodes')}</div></div><div><b>⭐ Paborito (featured)</b><div class="plist">${pl('featuredCodes')}</div></div><div><b>🎁 Upsell (alok bago checkout)</b><div class="plist">${pl('upsellCodes')}</div></div></div></div>
- <div class="box"><h3>Options / Add-ons bawat item</h3><p style="color:var(--m);margin-top:0">Isang <code># CODE</code> bawat item, tapos isang linya bawat grupo. <code>*</code> = kailangan pumili, <code>(multi)</code> = pwedeng higit isa. Format ng choice: <code>Pangalan=dagdag-presyo</code>.</p>
+ $('#v3').innerHTML=(admin?'':'<div class="box" style="background:var(--graceb)">Only an admin can save settings.</div>')+`
+ <div class="box"><h3>Business</h3><div class="row"><div><label>Store name</label><input type="text" id="c_storeName" value="${esc(CFGX.storeName)}"></div><div><label>Tagline</label><input type="text" id="c_tagline" value="${esc(CFGX.tagline)}"></div></div>
+ <div class="row"><div><label>Business type (sets the buttons, order types and checkout rules)</label><select id="c_businessType" ${DEVPIN?'':'disabled'}>${[['general','General / Any business'],['restaurant','Restaurant / Eatery (Dine-in, Table)'],['minimart','Mini-mart / Grocery'],['sari','Sari-sari store'],['service','Service (Salon / Repair / Laundry)'],['pharmacy','Pharmacy'],['hardware','Hardware / Wholesale']].map(x=>`<option value="${x[0]}" ${CFGX.businessType===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select> <button type="button" id="dvu" style="margin-top:6px">${DEVPIN?'🔓 Unlocked (Developer)':'🔒 Unlock (Developer PIN)'}</button><div style="color:var(--m);font-size:.85em">Only the developer can change the business type.</div><div id="fit" style="margin-top:6px;font-size:.9em;font-weight:600">${esc(FIT[CFGX.businessType]||FIT.general)}</div></div>
+ <div><label>Kiosk color</label><select id="c_brandMode"><option value="omni" ${CFGX.brandColor?'':'selected'}>OmniPOS color (day / dark)</option><option value="custom" ${CFGX.brandColor?'selected':''}>Custom color</option></select><div style="margin-top:6px"><input type="color" id="c_brandColor" value="${esc(CFGX.brandColor||'#2563eb')}" ${CFGX.brandColor?'':'disabled'}></div></div><div><label>Language</label><select id="c_language"><option value="tl" ${CFGX.language==='tl'?'selected':''}>Tagalog</option><option value="en" ${CFGX.language==='en'?'selected':''}>English</option></select></div></div></div>
+ <div class="box"><h3>Kiosk modes</h3><label class="chk"><input type="checkbox" id="m_order" ${m.order?'checked':''}> Self-order</label><label class="chk"><input type="checkbox" id="m_priceCheck" ${m.priceCheck?'checked':''}> Price check / scan</label><label class="chk"><input type="checkbox" id="m_queueBoard" ${m.queueBoard?'checked':''}> Order status board (for a TV)</label>
+ <p style="color:var(--m);margin:4px 0 0">Sari-sari/mini-mart that does not want self-order? Turn Self-order off and Price check on.</p></div>
+ <div class="box" id="bx_wait"><h3>🔥 Best sellers and ⏱ Estimated wait</h3>${flag('bestSellers','Show the 🔥 Best seller tag and category on the kiosk')}${flag('showWait','Show the estimated wait (home, cart and order number)')}
+ <div class="row"><div><label>Default minutes per order</label><input type="number" id="c_prepMinutes" min="1" max="120" value="${CFGX.prepMinutes}"></div><div><label>Orders prepared at the same time</label><input type="number" id="c_stations" min="1" max="20" value="${CFGX.stations}"></div></div>
+ <p class="muted" style="margin:6px 0 0">Best sellers come from kiosk sales in the last 30 days (at least 3 pieces). The wait is (orders not yet Ready + 1) × speed ÷ orders prepared at the same time. Once 3+ orders are finished, the actual speed (Preparing → Ready) is used instead of the default.</p></div>
+ <div class="box" id="bx_slots"><h3>📅 Booking slots (service / appointment)</h3>
+ <div class="row"><div><label>Opens (time)</label><input type="time" id="c_slotOpen" value="${esc(CFGX.slotOpen)}"></div><div><label>Closes (time)</label><input type="time" id="c_slotClose" value="${esc(CFGX.slotClose)}"></div><div><label>Slot length (minutes)</label><input type="number" id="c_slotMinutes" min="10" max="240" value="${CFGX.slotMinutes}"></div></div>
+ <div class="row"><div><label>Bookings per slot</label><input type="number" id="c_slotCapacity" min="1" max="50" value="${CFGX.slotCapacity}"></div><div><label>Days open for booking (including today)</label><input type="number" id="c_slotDays" min="1" max="60" value="${CFGX.slotDays}"></div><div><label>Minimum minutes before the slot</label><input type="number" id="c_slotLead" min="0" max="600" value="${CFGX.slotLead}"></div></div>
+ <p class="muted" style="margin:6px 0 0">Free times are calculated by the server. Only open bookings (New / Preparing / Ready) count; once Done or Cancelled, the slot is free again.</p></div>
+ <div class="box"><h3>Order</h3><label>Order types (comma-separated)</label><input type="text" id="c_orderTypes" value="${esc(CFGX.orderTypes.join(', '))}">
+ ${flag('qrPrinter','The kiosk has a QR/ticket printer (if NOT, every order needs a table no. as a reference)')}${flag('askName','Ask for the name')}${flag('askPhone','Ask for the mobile no.')}${CFGX.businessType==='restaurant'?flag('askTable','Ask for the table no.'):''}${flag('orderNote','Allow a note on the order/item')}${flag('showStock','Show remaining stock')}${flag('hideOutOfStock','Hide sold-out items')}${flag('upsell','Offer "Add anything else?" before checkout')}
+ <div class="row"><div><label>Max quantity per line</label><input type="number" id="c_maxQtyPerLine" value="${CFGX.maxQtyPerLine}"></div><div><label>Idle reset (seconds)</label><input type="number" id="c_idleSeconds" value="${CFGX.idleSeconds}"></div></div></div>
+ <div class="box"><h3>Items</h3><div class="row"><div><b>Hide from kiosk</b><div class="plist">${pl('hiddenCodes')}</div></div><div><b>⭐ Favorites (featured)</b><div class="plist">${pl('featuredCodes')}</div></div><div><b>🎁 Upsell (offered before checkout)</b><div class="plist">${pl('upsellCodes')}</div></div></div></div>
+ <div class="box"><h3>Options / Add-ons per item</h3><p style="color:var(--m);margin-top:0">One <code># CODE</code> per item, then one line per group. <code>*</code> = required, <code>(multi)</code> = more than one allowed. Choice format: <code>Name=extra-price</code>.</p>
  <pre># 1001 Burger\nSize*: Regular=0, Large=20\nAdd-ons (multi): Cheese=10, Egg=15</pre><textarea id="c_opts" rows="10">${esc(optsToText(CFGX.productOptions))}</textarea></div>
- <button id="sv" ${admin?'':'disabled'}>💾 I-save ang settings</button> <span id="svm"></span>`;
+ <button id="sv" ${admin?'':'disabled'}>💾 Save settings</button> <span id="svm"></span>`;
  $('#sv').onclick=save;
  const vis=bt=>{$('#bx_wait').style.display=bt==='service'?'none':'';$('#bx_slots').style.display=(bt==='service'||bt==='general')?'':'none'};vis(CFGX.businessType);
  $('#c_brandMode').onchange=e=>{$('#c_brandColor').disabled=e.target.value!=='custom'};
- $('#dvu').onclick=async()=>{if(DEVPIN)return;const pin=prompt('Developer PIN');if(!pin)return;const r=await api('POST','/api/kiosk/dev-verify',{devPin:pin});if(r.success){DEVPIN=pin;$('#c_businessType').disabled=false;$('#dvu').textContent='🔓 Naka-unlock (Developer)'}else alert(r.message||'Maling Developer PIN')};
+ $('#dvu').onclick=async()=>{if(DEVPIN)return;const pin=prompt('Developer PIN');if(!pin)return;const r=await api('POST','/api/kiosk/dev-verify',{devPin:pin});if(r.success){DEVPIN=pin;$('#c_businessType').disabled=false;$('#dvu').textContent='🔓 Unlocked (Developer)'}else alert(r.message||'Wrong Developer PIN')};
  const DEFT={restaurant:'Dine-in, Take-out',minimart:'Pick-up',sari:'Walk-in',service:'Walk-in',pharmacy:'Pick-up',hardware:'Pick-up, Delivery',general:'Walk-in'};
  $('#c_businessType').onchange=e=>{vis(e.target.value);$('#fit').textContent=FIT[e.target.value]||FIT.general;$('#c_orderTypes').value=DEFT[e.target.value]||'Walk-in';const MD={restaurant:[1,0,1],minimart:[1,1,0],sari:[0,1,0],service:[1,1,1],pharmacy:[1,1,0],hardware:[1,1,0],general:[1,1,1]}[e.target.value]||[1,1,1];['m_order','m_priceCheck','m_queueBoard'].forEach((id,i)=>{$('#'+id).checked=!!MD[i]});const t=$('#c_askTable');if(t&&e.target.value!=='restaurant'){t.checked=false;t.parentNode.style.display='none'}}}
 async function save(){
@@ -177,11 +424,104 @@ async function save(){
  const cfg={devPin:undefined,businessType:g('c_businessType').value,storeName:g('c_storeName').value,tagline:g('c_tagline').value,brandColor:g('c_brandMode').value==='custom'?g('c_brandColor').value:'',language:g('c_language').value,
   modes:{order:g('m_order').checked,priceCheck:g('m_priceCheck').checked,queueBoard:g('m_queueBoard').checked},orderTypes:g('c_orderTypes').value.split(',').map(s=>s.trim()).filter(Boolean),
   maxQtyPerLine:g('c_maxQtyPerLine').value,idleSeconds:g('c_idleSeconds').value,prepMinutes:g('c_prepMinutes').value,stations:g('c_stations').value,slotOpen:g('c_slotOpen').value,slotClose:g('c_slotClose').value,slotMinutes:g('c_slotMinutes').value,slotCapacity:g('c_slotCapacity').value,slotDays:g('c_slotDays').value,slotLead:g('c_slotLead').value,hiddenCodes:lst('hiddenCodes'),featuredCodes:lst('featuredCodes'),upsellCodes:lst('upsellCodes'),productOptions:textToOpts(g('c_opts').value)};
- ['askName','askPhone','askTable','orderNote','showStock','hideOutOfStock','upsell','bestSellers','showWait'].forEach(k=>{const e=g('c_'+k);cfg[k]=e?e.checked:false});
- const r=await api('PUT','/api/kiosk/config',{config:cfg,devPin:DEVPIN||undefined});if(r.success&&r.config){BIZC=r.config.businessType||'general';applyLabels()}$('#svm').textContent=r.success?'✓ Na-save. Mag-a-update ang kiosk sa susunod na refresh (≤1 min).':'✗ '+(r.message||'Error');if(r.success){DEVPIN='';g('c_businessType').disabled=true;g('dvu').textContent='🔒 I-unlock (Developer PIN)'}}
-function start(){$('#login').classList.add('hide');$('#app').classList.remove('hide');if(!ME)ME={role:''};lastIds='';checkLicense().then(()=>{loadBiz();poll()})}
+ ['askName','askPhone','askTable','qrPrinter','orderNote','showStock','hideOutOfStock','upsell','bestSellers','showWait'].forEach(k=>{const e=g('c_'+k);cfg[k]=e?e.checked:false});
+ const r=await api('PUT','/api/kiosk/config',{config:cfg,devPin:DEVPIN||undefined});if(r.success&&r.config){BIZC=r.config.businessType||'general';applyLabels()}$('#svm').textContent=r.success?'✓ Saved. The kiosk updates on its next refresh (≤1 min).':'✗ '+(r.message||'Error');if(r.success){DEVPIN='';g('c_businessType').disabled=true;g('dvu').textContent='🔒 Unlock (Developer PIN)'}}
+function setHH(){const h=document.querySelector('.top');if(h)document.documentElement.style.setProperty('--hh',h.offsetHeight+'px')}addEventListener('resize',setHH);
+function start(){setTimeout(setHH,0);$('#login').classList.add('hide');$('#app').classList.remove('hide');if(!ME)ME={role:''};lastIds=null;checkLicense().then(()=>{loadBiz();poll()})}
 setInterval(poll,3000);
 setInterval(()=>{if(TOKEN)checkLicense()},60000); // picks up a new/expired subscription without a page refresh
 if(TOKEN){api('GET','/api/kiosk/status').then(()=>{ME=JSON.parse(sessionStorage.getItem('kc_me')||'null');start()}).catch(()=>{})}
 const _l=$('#lb').onclick;$('#lb').onclick=async()=>{await _l();sessionStorage.setItem('kc_me',JSON.stringify(ME))};
-</script></body></html>
+</script><script>
+/* OmniIcons: replaces emoji in the UI with one consistent set of thin line icons (inline SVG, follows the text colour).
+   Works on text added later too (innerHTML / textContent) through a MutationObserver, so no template had to change. */
+(function(){
+ var P={
+  search:'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5"/>',
+  check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  checkc:'<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
+  x:'<path d="M6 6l12 12M18 6L6 18"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  hourglass:'<path d="M7 3h10M7 21h10M8 3v3.5a4 4 0 001.6 3.2L12 12l-2.4 2.3A4 4 0 008 17.5V21M16 3v3.5a4 4 0 01-1.6 3.2L12 12l2.4 2.3a4 4 0 011.6 3.2V21"/>',
+  alert:'<path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.4h.01"/>',
+  moon:'<path d="M20 14.5A8.5 8.5 0 119.5 4a7 7 0 0010.5 10.5z"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>',
+  gear:'<path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  chair:'<path d="M3.5 8.5h17M6 8.5V19M18 8.5V19M9.5 8.5v4M14.5 8.5v4"/>',
+  users:'<circle cx="9" cy="8" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c3 0 5 1.6 5 4.3"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4.5 20c0-4 3.5-6 7.5-6s7.5 2 7.5 6"/>',
+  pot:'<path d="M4 11h16v6a3 3 0 01-3 3H7a3 3 0 01-3-3zM2.5 11h19M9 7.5c0-1.5 1-1.5 1-3M14 7.5c0-1.5 1-1.5 1-3"/>',
+  chef:'<path d="M7 14a4 4 0 11.5-7.9A4.5 4.5 0 0112 3.5a4.5 4.5 0 013.9 2.6A4 4 0 1117 14zM7 14v5.5h10V14"/>',
+  lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+  unlock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 017.5-2"/>',
+  card:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h4"/>',
+  cash:'<circle cx="12" cy="12" r="9"/><path d="M12 6.5v11M9 9.5c0-1 1-1.7 3-1.7s3 .7 3 1.7-1 1.5-3 1.7-3 .7-3 1.8 1 1.7 3 1.7 3-.7 3-1.7"/>',
+  box:'<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3.3 7.5L12 12l8.7-4.5M12 12v9"/>',
+  cal:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
+  note:'<path d="M5 20h4L19.5 9.5a2.1 2.1 0 00-3-3L6 17z"/><path d="M14.5 8l3 3"/>',
+  flame:'<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 01-10 0c0-2 1-3 2-4 0 2 1 2.5 1.5 2C10 8 11 5 12 3z"/>',
+  star:'<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9l-5.2 2.8 1-5.9L3.5 9.7l5.9-.8z"/>',
+  gift:'<rect x="4" y="10" width="16" height="10" rx="1"/><rect x="3" y="7" width="18" height="3" rx="1"/><path d="M12 7v13M12 7c-3 0-4-3-2-3.5 2-.5 2 3.5 2 3.5zM12 7c3 0 4-3 2-3.5-2-.5-2 3.5-2 3.5z"/>',
+  cart:'<path d="M3 4h2.5l2 11h10l2-8H6.6"/><path d="M10 20h.01M17 20h.01"/>',
+  tag:'<path d="M3 12V4h8l10 10-8 8z"/><path d="M7.5 8.5h.01"/>',
+  mega:'<path d="M4 10v4h3l8 4V6L7 10z"/><path d="M18 9.5c1 .7 1.5 1.5 1.5 2.5s-.5 1.8-1.5 2.5"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+  vol:'<path d="M4 10v4h3.5L12 18V6L7.5 10z"/><path d="M15.5 9c1.2 1 1.2 5 0 6M18 6.5c2.7 2.7 2.7 8.3 0 11"/>',
+  mute:'<path d="M4 10v4h3.5L12 18V6L7.5 10z"/><path d="M16 10l5 5M21 10l-5 5"/>',
+  cam:'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="3.5"/>',
+  phone:'<rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/>',
+  clip:'<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9.5 2.5h5v3h-5zM9 11h6M9 15h6"/>',
+  refresh:'<path d="M20 11a8 8 0 00-14-4.5L4 9M4 4v5h5M4 13a8 8 0 0014 4.5L20 15M20 20v-5h-5"/>',
+  font:'<path d="M3.5 19L8.5 6l5 13M5.3 14.5h6.4M15 19l3-7 3 7M16 17h4"/>',
+  wrench:'<path d="M14.5 6a4 4 0 005.2 5.2l-9 9a2.1 2.1 0 01-3-3l9-9A4 4 0 0114.5 6z"/>',
+  store:'<path d="M3.5 9.5L5 4h14l1.5 5.5M3.5 9.5a3 3 0 006 0 3 3 0 006 0 3 3 0 005 0M5 12.5V20h14v-7.5M10 20v-4.5h4V20"/>',
+  burger:'<path d="M4 11a8 8 0 0116 0zM3 14.5h18M5 17.5h14l-1 2.5H6z"/>',
+  scissors:'<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 7.4L20 18M8.1 16.6L20 6"/>',
+  pill:'<path d="M10.5 20.5l-7-7a4.9 4.9 0 017-7l7 7a4.9 4.9 0 01-7 7z"/><path d="M8.5 8.5l7 7"/>',
+  dot:'<circle cx="12" cy="12" r="5" fill="currentColor"/>',
+  save:'<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
+  tray:'<path d="M3 14l3-9h12l3 9v5H3z"/><path d="M3 14h5l1 2h6l1-2h5"/>'
+ };
+ var C={checkc:'#16a34a',dot_g:'#16a34a',dot_r:'#dc2626',flame:'#ea580c',star:'#f59e0b',alert:'#d97706'};
+ var M={'🔍':'search','🔎':'search','✅':'checkc','✓':'check','✔':'check','✕':'x','✖':'x','✗':'x','❌':'x','⏱':'clock','⏳':'hourglass','⚠':'alert','🌙':'moon','☀':'sun','⚙':'gear','🪑':'chair','👥':'users','👤':'user','🍳':'pot','🧑‍🍳':'chef','🔒':'lock','🔓':'unlock','💳':'card','💰':'cash','📦':'box','📅':'cal','📝':'note','🔥':'flame','⭐':'star','🎁':'gift','🛒':'cart','🏷':'tag','📣':'mega','🌐':'globe','🔊':'vol','🔇':'mute','📷':'cam','📱':'phone','📋':'clip','🔄':'refresh','🔁':'refresh','🔠':'font','🔧':'wrench','🛠':'wrench','🏪':'store','🍔':'burger','💇':'scissors','💊':'pill','🟢':'dot_g','🔴':'dot_r','💾':'save','📬':'tray'};
+ var keys=Object.keys(M).sort(function(a,b){return b.length-a.length});
+ var RE=new RegExp('(?:'+keys.join('|')+')\\uFE0F?','g');
+ var st=document.createElement('style');
+ st.textContent='.oi{display:inline-block;width:1.15em;height:1.15em;vertical-align:-.2em;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;overflow:visible}';
+ (document.head||document.documentElement).appendChild(st);
+ function icon(name){
+  var base=name.replace(/_[gr]$/,''),ns='http://www.w3.org/2000/svg',s=document.createElementNS(ns,'svg');
+  s.setAttribute('viewBox','0 0 24 24');s.setAttribute('class','oi');s.setAttribute('aria-hidden','true');s.setAttribute('focusable','false');
+  if(C[name])s.style.color=C[name];
+  s.innerHTML=P[base];return s;
+ }
+ function fix(n){
+  var s=n.nodeValue,m,last=0,f=null;RE.lastIndex=0;
+  while((m=RE.exec(s))){
+   if(!f)f=document.createDocumentFragment();
+   if(m.index>last)f.appendChild(document.createTextNode(s.slice(last,m.index)));
+   f.appendChild(icon(M[m[0].replace(/️/g,'')]));last=m.index+m[0].length;
+  }
+  if(!f)return;if(last<s.length)f.appendChild(document.createTextNode(s.slice(last)));
+  if(n.parentNode)n.parentNode.replaceChild(f,n);
+ }
+ var SKIP=/^(SCRIPT|STYLE|TEXTAREA|OPTION|TITLE|NOSCRIPT|SVG)$/i;
+ function walk(root){
+  if(root.nodeType===3){if(root.parentNode&&!SKIP.test(root.parentNode.nodeName))fix(root);return}
+  if(root.nodeType!==1||SKIP.test(root.nodeName))return;
+  var w=document.createTreeWalker(root,4,null),l=[],n;
+  while((n=w.nextNode()))if(!SKIP.test(n.parentNode.nodeName)&&n.nodeValue.length>0)l.push(n);
+  l.forEach(function(t){RE.lastIndex=0;if(RE.test(t.nodeValue)){RE.lastIndex=0;fix(t)}});
+ }
+ var mo=new MutationObserver(function(ms){
+  ms.forEach(function(m){
+   if(m.type==='characterData'){walk(m.target);return}
+   for(var i=0;i<m.addedNodes.length;i++)walk(m.addedNodes[i]);
+  });
+  mo.takeRecords();
+ });
+ function start(){walk(document.body);mo.observe(document.body,{childList:true,subtree:true,characterData:true})}
+ if(document.body)start();else document.addEventListener('DOMContentLoaded',start);
+})();
+</script>
+</body></html>

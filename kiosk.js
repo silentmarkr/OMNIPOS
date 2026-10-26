@@ -11,6 +11,8 @@
 //   GET  /api/kiosk/orders           para sa counter/kitchen screen
 //   GET  /api/kiosk/orders/:id       isang order (para sa POS Terminal kapag ini-scan ang QR ng kiosk order)
 //   POST /api/kiosk/orders/:id/status  new -> preparing -> ready -> done | cancelled
+//   GET  /api/kiosk/kitchen/board    restaurant tickets with per-item cooking status
+//   POST /api/kiosk/orders/:id/items/:lineId/status  new -> preparing -> ready per dish
 //   GET  /api/kiosk/summary          benta ng kiosk ngayon + top items (para sa owner)
 //   GET/PUT /api/kiosk/config        i-customize ng Admin ang kiosk (business type, options/add-ons, hidden items, atbp.)
 //   GET  /api/kiosk/status           lisensya ng module (Self-Order Kiosk subscription): unlocked? grace period? presyo?
@@ -40,6 +42,7 @@ const FILE_ORDERS = 'kioskOrders';
 const ORDERS_CAP = 3000;
 const OPEN_STATUSES = new Set(['new', 'preparing', 'ready']);
 const ALL_STATUSES = new Set(['new', 'preparing', 'ready', 'done', 'cancelled']);
+const KITCHEN_STATUSES = new Set(['new', 'preparing', 'ready']);
 
 const DEFAULT_CONFIG = {
     businessType: 'general',            // general | restaurant | minimart | sari | service | pharmacy | hardware
@@ -52,6 +55,8 @@ const DEFAULT_CONFIG = {
     askName: false,
     askPhone: false,
     askTable: false,
+    // Walang printer ng QR/ticket? (default: wala). Kapag false, kailangan ng table no. ang bawat order para may reference sa counter.
+    qrPrinter: false,
     orderNote: true,
     showStock: false,
     hideOutOfStock: true,
@@ -106,21 +111,21 @@ const BIZ_MODES = {
 async function checkDevPin(deps, pin) {
     const relayFetch = deps && deps.relayFetch;
     const base = deps && typeof deps.relayUrl === 'function' ? deps.relayUrl() : '';
-    if (typeof relayFetch !== 'function' || !base) return { ok: false, code: 'norelay', message: 'Hindi nakakonekta sa RELAY. I-update ang hook ng kiosk sa server.js (install-kiosk-addon.js).' };
+    if (typeof relayFetch !== 'function' || !base) return { ok: false, code: 'norelay', message: 'Not connected to RELAY. Update the kiosk hook in server.js (install-kiosk-addon.js).' };
     const p = String(pin == null ? '' : pin);
-    if (!p || p.length > 64) return { ok: false, code: 'bad', message: 'Ilagay ang Developer PIN.' };
+    if (!p || p.length > 64) return { ok: false, code: 'bad', message: 'Enter the Developer PIN.' };
     try {
-        const r = await relayFetch(`${base}/relay/client/kiosk-dev-pin/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: p }) }, 15000);
+        const r = await relayFetch(`${base}/relay/client/kiosk-dev-pin/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: p, installationId: (deps && typeof deps.getInstallationId === 'function' ? (deps.getInstallationId() || undefined) : undefined) }) }, 15000);
         let j = {};
         try { j = await r.json(); } catch (e) { /* ignore */ }
-        if (r.status === 429) return { ok: false, code: 'locked', message: 'Masyadong maraming subok. Subukan ulit mamaya.' };
+        if (r.status === 429) return { ok: false, code: 'locked', message: 'Too many attempts. Try again later.' };
         if (r.ok && j && j.ok === true) return { ok: true };
         if (j && j.code === 'LOCKED') return { ok: false, code: 'locked', message: 'Masyadong maraming maling PIN. Subukan ulit pagkalipas ng ' + Math.ceil((j.retryAfterSec || 900) / 60) + ' minuto.' };
-        if (j && j.code === 'UNSET') return { ok: false, code: 'unset', message: 'Wala pang Developer PIN sa RELAY.' };
-        if (r.ok) return { ok: false, code: 'bad', message: 'Maling Developer PIN.' };
+        if (j && j.code === 'UNSET') return { ok: false, code: 'unset', message: 'No Developer PIN is set on RELAY yet.' };
+        if (r.ok) return { ok: false, code: 'bad', message: 'Wrong Developer PIN.' };
         return { ok: false, code: 'relay', message: (j && j.message) || ('Hindi tinanggap ng RELAY (HTTP ' + r.status + ').') };
     } catch (e) {
-        return { ok: false, code: 'offline', message: 'Kailangan ng internet para ma-verify ang Developer PIN sa RELAY.' };
+        return { ok: false, code: 'offline', message: 'Internet is required to verify the Developer PIN with RELAY.' };
     }
 }
 
@@ -159,7 +164,7 @@ function sanitizeConfigRaw(input, base) {
         if (!c.modes.order && !c.modes.priceCheck) c.modes.order = true;
     }
     if ('orderTypes' in input) { c.orderTypes = arr(input.orderTypes, 24, 6); if (!c.orderTypes.length) c.orderTypes = ['Take-out']; }
-    ['askName', 'askPhone', 'askTable', 'orderNote', 'showStock', 'hideOutOfStock', 'upsell', 'bestSellers', 'showWait'].forEach(k => { if (k in input) c[k] = b(input[k]); });
+    ['askName', 'askPhone', 'askTable', 'qrPrinter', 'orderNote', 'showStock', 'hideOutOfStock', 'upsell', 'bestSellers', 'showWait'].forEach(k => { if (k in input) c[k] = b(input[k]); });
     const num = (v, lo, hi, d) => { const n = parseInt(v, 10); return Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : d)); };
     if ('prepMinutes' in input) c.prepMinutes = num(input.prepMinutes, 1, 120, 5);
     if ('stations' in input) c.stations = num(input.stations, 1, 20, 1);
@@ -294,6 +299,42 @@ module.exports = function registerKiosk(deps) {
     const getConfig = () => sanitizeConfig(readData(FILE_CONFIG, {}), null);
     const getOrders = () => { const o = readData(FILE_ORDERS, []); return Array.isArray(o) ? o : []; };
     const noStore = res => { res.set('Cache-Control', 'no-store, no-cache, must-revalidate'); res.set('Pragma', 'no-cache'); };
+    const kitchenStatusFor = (item, orderStatus) => {
+        if (item && KITCHEN_STATUSES.has(item.kitchenStatus)) return item.kitchenStatus;
+        if (orderStatus === 'preparing') return 'preparing';
+        if (orderStatus === 'ready' || orderStatus === 'done') return 'ready';
+        return 'new';
+    };
+    const alignKitchenItems = (order, status, at) => {
+        const itemStatus = status === 'preparing' ? 'preparing'
+            : (status === 'ready' || status === 'done') ? 'ready'
+                : status === 'new' ? 'new' : null;
+        if (!itemStatus || !Array.isArray(order.items)) return;
+        order.items.forEach((item, index) => {
+            if (!item || typeof item !== 'object') return;
+            if (!item.lineId) item.lineId = String(index + 1);
+            item.kitchenStatus = itemStatus;
+            item.kitchenStatusAt = at;
+            if (itemStatus === 'preparing' && !item.kitchenStartedAt) item.kitchenStartedAt = at;
+            if (itemStatus === 'ready' && !item.kitchenReadyAt) item.kitchenReadyAt = at;
+        });
+    };
+    const deriveKitchenOrderStatus = (order, actor, at) => {
+        const items = Array.isArray(order.items) ? order.items : [];
+        const states = items.map(item => kitchenStatusFor(item, order.status));
+        const next = states.length && states.every(status => status === 'ready')
+            ? 'ready'
+            : states.some(status => status === 'preparing' || status === 'ready') ? 'preparing' : 'new';
+        const previous = order.status;
+        if (next !== previous) {
+            order.status = next;
+            order.statusAt = at;
+            order.statusBy = actor || '';
+            if (next === 'preparing' && !order.prepAt) order.prepAt = at;
+            if (next === 'ready' && !order.readyAt) order.readyAt = at;
+        }
+        return { previous, status: next };
+    };
 
     // Stock na naka-reserve ng mga bukas pang kiosk order (para hindi ma-oversell ng dalawang kiosk/customer).
     function reservedByCode(orders) {
@@ -310,10 +351,10 @@ module.exports = function registerKiosk(deps) {
     function checkPayable(id) {
         const key = String(id == null ? '' : id).trim().toUpperCase();
         const o = key ? getOrders().find(x => String(x.id).toUpperCase() === key) : null;
-        if (!o) return { ok: false, code: 'NOT_FOUND', message: 'Hindi nahanap ang kiosk order na ito.' };
-        if (o.txId) return { ok: false, code: 'ALREADY_PAID', order: o, message: `Bayad na ang kiosk order #${o.orderNo} (transaction ${o.txId}).` };
-        if (o.status === 'cancelled') return { ok: false, code: 'CANCELLED', order: o, message: `Na-cancel ang kiosk order #${o.orderNo}.` };
-        if (!OPEN_STATUSES.has(o.status)) return { ok: false, code: 'CLOSED', order: o, message: `Sarado na ang kiosk order #${o.orderNo} (${o.status}).` };
+        if (!o) return { ok: false, code: 'NOT_FOUND', message: 'This kiosk order was not found.' };
+        if (o.txId) return { ok: false, code: 'ALREADY_PAID', order: o, message: `Kiosk order #${o.orderNo} is already paid (transaction ${o.txId}).` };
+        if (o.status === 'cancelled') return { ok: false, code: 'CANCELLED', order: o, message: `Kiosk order #${o.orderNo} was cancelled.` };
+        if (!OPEN_STATUSES.has(o.status)) return { ok: false, code: 'CLOSED', order: o, message: `Kiosk order #${o.orderNo} is closed (${o.status}).` };
         return { ok: true, order: o };
     }
     // Tinatawag ng server.js PAGKATAPOS ma-save ang POS sale. Hindi binabago ang status (tuloy pa rin ang Preparing/Ready/Done ng kusina).
@@ -498,6 +539,7 @@ module.exports = function registerKiosk(deps) {
             const baseQty = round2(qty * factor);
             need[p.code] = round2((need[p.code] || 0) + baseQty);
             items.push({
+                lineId: String(items.length + 1), kitchenStatus: 'new',
                 code: String(p.code), name: p.name, category: p.category || '', qty, unit, factor, baseQty,
                 unitPrice, options: picked, optionsTotal: optTotal,
                 lineTotal: round2((unitPrice + optTotal) * qty),
@@ -525,6 +567,22 @@ module.exports = function registerKiosk(deps) {
             appt = { date: ad, time: at };
         }
         const orderType = cfg.orderTypes.includes(body.orderType) ? body.orderType : cfg.orderTypes[0];
+        const isRestaurant = cfg.businessType === 'restaurant';
+        const isDineIn = /dine/i.test(String(orderType || ''));
+        const cleanTable = cleanStr(body.table, 10);
+        const cleanName = cleanStr(body.customerName, 40);
+        // Without a QR printer the customer needs a reference at the counter.
+        // Restaurant: Dine-in -> table no. is required; Take-out has no table, so a name (or a table, for older kiosk
+        // apps that still send one) is the reference. Other business types keep the original rule (table no. required).
+        const tableRequired = cfg.qrPrinter !== true && (!isRestaurant || isDineIn);
+        const nameRequired = cfg.qrPrinter !== true && isRestaurant && !isDineIn;
+        if (tableRequired && !cleanTable) return res.status(400).json({ success: false, tableRequired: true, message: 'Enter the table no. (this kiosk has no QR printer).' });
+        if (nameRequired && !cleanName && !cleanTable) return res.status(400).json({ success: false, nameRequired: true, message: 'Enter your name so the counter can find your take-out order (this kiosk has no QR printer).' });
+        // Structured party size / allergy (the kitchen display must not depend on parsing the free-text note, which is
+        // length-limited). Both are optional and only stored when the kiosk sent them.
+        const paxNum = Math.round(Number(body.pax));
+        const pax = Number.isFinite(paxNum) && paxNum >= 1 && paxNum <= 99 ? paxNum : undefined;
+        const allergy = cleanStr(body.allergy, 60);
         const dayKey = todayKey();
         const sameDay = orders.filter(o => o.dayKey === dayKey);
         const seq = sameDay.reduce((m, o) => Math.max(m, o.seq || 0), 0) + 1;
@@ -535,9 +593,13 @@ module.exports = function registerKiosk(deps) {
             dayKey, seq,
             status: 'new',
             orderType,
-            customerName: cfg.askName ? cleanStr(body.customerName, 40) : '',
-            phone: cfg.askPhone ? cleanStr(body.phone, 20) : '',
-            table: cfg.askTable ? cleanStr(body.table, 10) : '',
+            // The kiosk tablet decides which fields to ask (its own checkout rules, e.g. "Name for Take-out"), so whatever it
+            // collected is stored. The old cfg.askName/askTable gates silently dropped a name or table the customer had typed.
+            customerName: cleanName,
+            phone: cleanStr(body.phone, 20),
+            table: (isRestaurant || cfg.askTable || tableRequired) ? cleanTable : '',
+            pax,
+            allergy: allergy || undefined,
             note: cleanStr(body.note, 200),
             appt,
             items, total,
@@ -565,6 +627,31 @@ module.exports = function registerKiosk(deps) {
         });
     });
 
+    // Dedicated Kitchen Display System board. Existing orders remain compatible; older
+    // tickets inherit an item state from their order state until the first item update.
+    app.get('/api/kiosk/kitchen/board', gate, (req, res) => {
+        noStore(res);
+        const cfg = getConfig();
+        if (cfg.businessType !== 'restaurant') {
+            return res.status(409).json({ success: false, restaurantRequired: true, message: 'Set Business Type to Restaurant in Kiosk Counter > Settings before using the Kitchen Kiosk.' });
+        }
+        const orders = getOrders().filter(order => OPEN_STATUSES.has(order.status)).slice(-300).map(({ phone, ...order }) => ({
+            ...order, // the kitchen screen never needs the customer's phone number
+            items: (Array.isArray(order.items) ? order.items : []).map((item, index) => ({
+                ...item,
+                lineId: String(item && item.lineId || index + 1),
+                kitchenStatus: kitchenStatusFor(item, order.status)
+            }))
+        }));
+        res.json({
+            success: true,
+            config: { businessType: cfg.businessType, prepMinutes: cfg.prepMinutes, stations: cfg.stations },
+            store: storeInfo(),
+            orders,
+            serverTime: new Date().toISOString()
+        });
+    });
+
     app.get('/api/kiosk/orders', gate, (req, res) => {
         noStore(res);
         const status = String(req.query.status || 'open');
@@ -585,21 +672,85 @@ module.exports = function registerKiosk(deps) {
 
     app.post('/api/kiosk/orders/:id/status', gate, (req, res) => {
         const next = String((req.body || {}).status || '');
-        if (!ALL_STATUSES.has(next)) return res.status(400).json({ success: false, message: 'Maling status.' });
+        if (!ALL_STATUSES.has(next)) return res.status(400).json({ success: false, message: 'Invalid status.' });
         const orders = getOrders();
         const o = orders.find(x => x.id === req.params.id);
-        if (!o) return res.status(404).json({ success: false, message: 'Hindi nahanap ang order.' });
-        if (!OPEN_STATUSES.has(o.status) && !isAdmin(req)) return res.status(409).json({ success: false, message: 'Sarado na ang order na ito.' });
-        if (next === 'cancelled' && o.txId) return res.status(409).json({ success: false, message: `Bayad na ang order na ito (transaction ${o.txId}). I-void o i-refund ang transaction sa POS sa halip na i-cancel dito.` });
+        if (!o) return res.status(404).json({ success: false, message: 'Order not found.' });
+        if (!OPEN_STATUSES.has(o.status) && !isAdmin(req)) return res.status(409).json({ success: false, message: 'This order is already closed.' });
+        // Safety: kung luma na ang screen ng counter (ibang device/tao ang nagpalit na ng status), huwag ituloy ang pindot.
+        const expected = (req.body || {}).expectedStatus;
+        if (expected && o.status !== String(expected)) return res.status(409).json({ success: false, stale: true, order: o, message: `Order #${o.orderNo} has changed (now: ${o.status}). The screen was refreshed; check it before pressing again.` });
+        if (next === 'cancelled' && o.txId) return res.status(409).json({ success: false, message: `This order is already paid (transaction ${o.txId}). Void or refund the transaction in the POS instead of cancelling it here.` });
+        if (next === 'done' && (req.body || {}).received === true && !o.txId) return res.status(409).json({ success: false, message: 'This order is not paid yet. Scan and pay it in the POS before marking it Received.' });
+        const statusAt = new Date().toISOString();
+        alignKitchenItems(o, next, statusAt);
         o.status = next;
-        o.statusAt = new Date().toISOString();
+        o.statusAt = statusAt;
         o.statusBy = req.authUser && req.authUser.username;
         if (next === 'preparing' && !o.prepAt) o.prepAt = o.statusAt;
         if (next === 'ready' && !o.readyAt) o.readyAt = o.statusAt;
         if (next === 'done' && (req.body || {}).paidMethod) o.paidMethod = String(req.body.paidMethod).slice(0, 20);
+        // "Received": kinuha na ng customer ang order (bayad na lang ang pwede). Ito ang nag-aalis sa order sa counter.
+        if (next === 'done' && (req.body || {}).received === true) { o.receivedAt = o.statusAt; o.receivedBy = o.statusBy; }
         writeData(FILE_ORDERS, orders);
         try { logAction(req.authUser.username, `Kiosk order ${o.id} -> ${next}`); } catch (e) { /* ignore */ }
         res.json({ success: true, order: o });
+    });
+
+    // Per-dish kitchen workflow. The expected item state prevents two stations from
+    // silently overwriting one another; order status is derived from all its line states.
+    app.post('/api/kiosk/orders/:id/items/:lineId/status', gate, (req, res) => {
+        const cfg = getConfig();
+        if (cfg.businessType !== 'restaurant') {
+            return res.status(409).json({ success: false, restaurantRequired: true, message: 'Kitchen item workflow is available only for Restaurant business type.' });
+        }
+        const next = String((req.body || {}).status || '');
+        if (!KITCHEN_STATUSES.has(next)) return res.status(400).json({ success: false, message: 'Invalid kitchen item status.' });
+        const orders = getOrders();
+        const order = orders.find(item => String(item.id) === String(req.params.id));
+        if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
+        if (!OPEN_STATUSES.has(order.status)) return res.status(409).json({ success: false, message: 'This order is already closed.' });
+        if (!Array.isArray(order.items)) order.items = [];
+        // Freeze the inherited state for every legacy line before changing the parent
+        // order state; otherwise a bulk update could make untouched lines appear stale.
+        order.items.forEach((line, index) => {
+            if (!line || typeof line !== 'object') return;
+            if (!line.lineId) line.lineId = String(index + 1);
+            if (!KITCHEN_STATUSES.has(line.kitchenStatus)) line.kitchenStatus = kitchenStatusFor(line, order.status);
+        });
+        const lineId = String(req.params.lineId || '');
+        const itemIndex = order.items.findIndex((item, index) => String(item && item.lineId || index + 1) === lineId);
+        if (itemIndex < 0) return res.status(404).json({ success: false, message: 'Kitchen item not found.' });
+        const item = order.items[itemIndex];
+        const current = kitchenStatusFor(item, order.status);
+        const expected = String((req.body || {}).expectedStatus || '');
+        if (expected && current !== expected) {
+            return res.status(409).json({ success: false, stale: true, item, message: 'This dish changed on another screen. Refresh the ticket before updating it.' });
+        }
+        const at = new Date().toISOString();
+        item.lineId = lineId;
+        item.kitchenStatus = next;
+        item.kitchenStatusAt = at;
+        if (next === 'new') {
+            if (item.kitchenStartedAt) item.kitchenLastStartedAt = item.kitchenStartedAt;
+            if (item.kitchenReadyAt) item.kitchenLastReadyAt = item.kitchenReadyAt;
+            delete item.kitchenStartedAt;
+            delete item.kitchenReadyAt;
+        } else if (next === 'preparing') {
+            if (item.kitchenReadyAt) item.kitchenLastReadyAt = item.kitchenReadyAt;
+            delete item.kitchenReadyAt;
+            if (!item.kitchenStartedAt) item.kitchenStartedAt = at;
+        } else {
+            if (!item.kitchenStartedAt) item.kitchenStartedAt = at;
+            item.kitchenReadyAt = at;
+        }
+        const actor = req.authUser && req.authUser.username;
+        const result = deriveKitchenOrderStatus(order, actor, at);
+        writeData(FILE_ORDERS, orders);
+        try {
+            logAction(actor || 'system', `Kitchen order ${order.id} item ${lineId} -> ${next}`);
+        } catch (e) { /* ignore */ }
+        res.json({ success: true, order, itemIndex, item, previousOrderStatus: result.previous, orderStatus: result.status });
     });
 
     app.get('/api/kiosk/summary', gate, (req, res) => {
@@ -629,13 +780,13 @@ module.exports = function registerKiosk(deps) {
 
     app.get('/api/kiosk/config', gate, (req, res) => { noStore(res); res.json({ success: true, config: getConfig() }); });
     app.put('/api/kiosk/config', gate, async (req, res) => {
-        if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin lang ang pwedeng mag-edit ng kiosk settings.' });
+        if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Only an admin can edit the kiosk settings.' });
         const cur = getConfig();
         const cfg = sanitizeConfig((req.body || {}).config, cur);
         // Ang pagpapalit ng Uri ng negosyo (na nagtatakda ng buttons/rules/order types) ay Developer PIN lang.
         if (cfg.businessType !== cur.businessType) {
             const chk = await checkDevPin(deps, (req.body || {}).devPin);
-            if (!chk.ok) return res.status(403).json({ success: false, devPinRequired: true, message: 'Developer PIN ang kailangan para palitan ang Uri ng negosyo. ' + chk.message });
+            if (!chk.ok) return res.status(403).json({ success: false, devPinRequired: true, message: 'The Developer PIN is required to change the business type. ' + chk.message });
             cfg.modes = { ...BIZ_MODES[cfg.businessType] };
             try { logAction(req.authUser.username, 'Kiosk business type: ' + cur.businessType + ' -> ' + cfg.businessType); } catch (e) { /* ignore */ }
         }
@@ -644,7 +795,7 @@ module.exports = function registerKiosk(deps) {
         res.json({ success: true, config: cfg });
     });
     app.post('/api/kiosk/dev-verify', gate, limit('kiosk-dev', 20, 10 * 60 * 1000), async (req, res) => {
-        if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin lang.' });
+        if (!isAdmin(req)) return res.status(403).json({ success: false, message: 'Admin only.' });
         const chk = await checkDevPin(deps, (req.body || {}).devPin);
         res.status(chk.ok ? 200 : 403).json({ success: chk.ok, message: chk.message || '' });
     });

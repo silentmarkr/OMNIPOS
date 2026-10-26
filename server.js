@@ -47,6 +47,12 @@ process.on('unhandledRejection', (reason) => {
 const { sendMailSmart, verifyMailCredentialsSmart, describeMailError, SMTP_TIMEOUTS } = require('./mailer');
 const app = express();
 app.set('trust proxy', true);
+// SECURITY FIX (CRITICAL): Express routes are case-INSENSITIVE by default, but the guards below (activation lock,
+// license lock, and the login/session middleware) check `req.path.startsWith('/api/')` case-SENSITIVELY. A request such as
+// `GET /API/products` or `/Api/transactions` therefore skipped every guard (no login, no license/activation check)
+// yet still matched the real `/api/...` route. Making routing case-sensitive means `/API/...` now simply returns 404,
+// so the guards and the router always agree on what counts as an API path.
+app.set('case sensitive routing', true);
 function getClientIp(req) {
     const cfIp = req.headers['cf-connecting-ip'];
     if (cfIp) return cfIp.trim().replace(/^::ffff:/, '');
@@ -23213,7 +23219,7 @@ registerMarketplace({
 });
 // Self-Order Kiosk (OMNIKiosk app) — tingnan ang kiosk.js
 // Ang return value ({ checkPayable, markPaid }) ay ginagamit ng processTransaction (POS sale) para sa kiosk order na ini-scan sa Terminal.
-kioskApi = require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL, getKioskFeatureStatus });
+kioskApi = require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL, getInstallationId: () => { try { return getBirPassKeyIdentity().installationId; } catch (_e) { return null; } }, getKioskFeatureStatus });
 const { restoreFromCloudIfNeeded, pushSnapshotToCloud } = require('./cloud-snapshot');
 async function startOmniposServer() {
     await restoreFromCloudIfNeeded();
