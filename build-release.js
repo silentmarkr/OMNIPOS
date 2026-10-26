@@ -62,9 +62,19 @@ const EXCLUDE = new Set([
   // isama sa release package kahit ito lang nangyaring naiwan sa
   // working copy bago mag-build.
   "cloud-backup-pricing-cache.json",
+  // SECURITY: dev/runtime leftovers na hindi dapat mapunta sa customer package.
+  "logs",
+  "certs",
+  ".start.sh.lock.d",
+  ".omnipos-device-seed",
+  ".env.key",
+  "diagnose.py",
+  "fix_modals.py",
+  "recreate-widgets.sh",
 ]);
 
-const EXCLUDE_EXTENSIONS = new Set([".patch", ".log"]);
+// ".bak-kiosk", ".bak", ".relaybak" = backup copies at testing env (hal. server.js.bak-kiosk, .env.relaybak)
+const EXCLUDE_EXTENSIONS = new Set([".patch", ".log", ".bak", ".bak-kiosk", ".relaybak"]);
 
 const SERVER_TARGETS = new Set([
   "server.js",
@@ -87,6 +97,9 @@ const SERVER_TARGETS = new Set([
   "uom-pricing.js",
   // Marketplace Hub (Shopee/Lazada/TikTok) server module — require()-d by server.js.
   "marketplace-sync.js",
+  // Self-Order Kiosk server module (may license gate + Developer PIN logic) at Daily Owner Summary — require()-d by server.js.
+  "kiosk.js",
+  "daily-digest.js",
 ]);
 
 const ENV_LOADER_FILENAME = "env-loader.js";
@@ -101,6 +114,7 @@ const CLIENT_TARGETS = new Set([
   // plaintext ito sa omnipos-client.zip kapag lokal ang build.
   path.join("public", "app1.js"),
   path.join("public", "marketplace-ui.js"),
+  path.join("public", "daily-digest-ui.js"),
   path.join("public", "bt-printer.js"),
   // Printer Device Settings (Bluetooth brand presets + WiFi/LAN network
   // printing) — proprietary code, must ship/obfuscate alongside bt-printer.js.
