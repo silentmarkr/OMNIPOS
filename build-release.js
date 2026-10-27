@@ -12,7 +12,8 @@ const OUT_DIR = path.join(ROOT, "release", "OMNIPOS");
 // Persistent cache lives outside the customer release directory and is excluded from packages.
 const OBFUSCATION_CACHE_DIR = path.join(ROOT, "release", ".obfuscation-cache");
 const OBFUSCATION_CACHE_MANIFEST = path.join(OBFUSCATION_CACHE_DIR, "manifest.json");
-const OBFUSCATION_CACHE_SCHEMA = 2;
+const OBFUSCATION_CACHE_SCHEMA = 3; // bumped: client scripts are now lowered for Chrome 70 before obfuscation
+const { LEGACY_LOWER_VERSION } = require("./legacy-lower.js");
 const DEFAULT_OBFUSCATION_WORKER_TIMEOUT_MS = 15 * 60 * 1000;
 
 const EXCLUDE = new Set([
@@ -54,6 +55,8 @@ const EXCLUDE = new Set([
   //     (vacuumDatabase() sa db.js).
   "build-release.js",
   "obfuscate-worker.js",
+  // Build-only helper (needs esbuild) that lowers client JS for old Android WebViews; must never ship to clients.
+  "legacy-lower.js",
   "start.sh.bak",
   "vacuum-now.js",
   // SYNC FIX: itinugma sa INTEGRITY_SCAN_EXCLUDE_NAMES ng server.js —
@@ -62,7 +65,7 @@ const EXCLUDE = new Set([
   // isama sa release package kahit ito lang nangyaring naiwan sa
   // working copy bago mag-build.
   "cloud-backup-pricing-cache.json",
-  // SECURITY: dev/runtime leftovers na hindi dapat mapunta sa customer package.
+  // SECURITY: dev/runtime leftovers that must never end up in the customer package.
   "logs",
   "certs",
   ".start.sh.lock.d",
@@ -73,7 +76,7 @@ const EXCLUDE = new Set([
   "recreate-widgets.sh",
 ]);
 
-// ".bak-kiosk", ".bak", ".relaybak" = backup copies at testing env (hal. server.js.bak-kiosk, .env.relaybak)
+// ".bak-kiosk", ".bak", ".relaybak" = backup copies and testing env files (e.g. server.js.bak-kiosk, .env.relaybak)
 const EXCLUDE_EXTENSIONS = new Set([".patch", ".log", ".bak", ".bak-kiosk", ".relaybak"]);
 
 const SERVER_TARGETS = new Set([
@@ -97,7 +100,7 @@ const SERVER_TARGETS = new Set([
   "uom-pricing.js",
   // Marketplace Hub (Shopee/Lazada/TikTok) server module — require()-d by server.js.
   "marketplace-sync.js",
-  // Self-Order Kiosk server module (may license gate + Developer PIN logic) at Daily Owner Summary — require()-d by server.js.
+  // Self-Order Kiosk server module (contains the license gate + Developer PIN logic) and Daily Owner Summary — require()-d by server.js.
   "kiosk.js",
   "daily-digest.js",
 ]);
@@ -435,6 +438,7 @@ function getObfuscationCacheIdentity(srcPath, options, kind = "js") {
     obfuscatorVersion: getObfuscatorVersion(),
     nodeMajor: process.versions.node.split(".")[0],
     cacheSchema: OBFUSCATION_CACHE_SCHEMA,
+    legacyLower: options && options.target === "browser" ? LEGACY_LOWER_VERSION : undefined,
     kind,
   })));
   const entryKey = `${relativePath}::${kind}`;

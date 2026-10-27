@@ -1,26 +1,27 @@
 // PATH: OMNIPOS/daily-digest.js
 //
-// Daily Owner Summary (additive — walang ginagalaw na existing route o data).
-// Sinusunod ang parehong pattern ng kiosk.js: require('./daily-digest')({ ...deps }) sa dulo ng server.js.
+// Daily Owner Summary (additive — does not touch any existing route or data).
+// Follows the same pattern as kiosk.js: require('./daily-digest')({ ...deps }) near the end of server.js.
 //
-//   GET /api/reports/daily-digest            benta ng ngayon (oras sa Pilipinas, UTC+8)
-//   GET /api/reports/daily-digest?date=YYYY-MM-DD   benta ng piniling araw
-//   GET /api/reports/daily-digest/config     setting ng awtomatikong email tuwing gabi (admin lang)
-//   PUT /api/reports/daily-digest/config     { enabled, email, hour }  (admin lang)
-//   POST /api/reports/daily-digest/send-now  magpadala ng email ngayon para masubukan (admin lang)
+//   GET  /api/reports/daily-digest                    today's sales (Philippine time, UTC+8)
+//   GET  /api/reports/daily-digest?date=YYYY-MM-DD    sales for a chosen day
+//   GET  /api/reports/daily-digest/config             nightly email settings (admin only)
+//   PUT  /api/reports/daily-digest/config             { enabled, email, hour }  (admin only)
+//   POST /api/reports/daily-digest/send-now           send the email right now, for testing (admin only)
 //
-// AWTOMATIKONG EMAIL: kapag naka-enable, nagpapadala ng buod sa email ng may-ari tuwing {hour}:00 (oras sa Pilipinas),
-// isang beses lang kada araw. Gumagamit ng parehong sender email ng OTP/fraud alert (Receipt Settings > OTP sender).
+// NIGHTLY EMAIL: when enabled, the summary is emailed to the owner every day at {hour}:00 (Philippine time),
+// once per day. It uses the same sender email as OTP / fraud alerts (Receipt Settings > OTP sender).
 //
-// Sagot: gross / refund / net, bilang ng transaksyon, average basket, hatian ng bayad (cash/GCash/card...),
-// top items, benta kada oras, benta kada cashier, void count, at paghahambing sa kahapon at sa parehong
-// araw noong nakaraang linggo. May kasamang "text" na handa nang i-copy sa Viber/Messenger/SMS ng may-ari.
+// Response: gross / refunds / net, transaction count, average basket, payment breakdown (cash/GCash/card...),
+// top items, sales per hour, sales per cashier, void count, and comparison with yesterday and with the same
+// weekday last week. Includes a ready-to-copy "text" version for Viber/Messenger/SMS.
 //
-// READ-ONLY: walang sinusulat sa database. Parehong net-of-refund rule ng computeRemoteOperationsPayload() sa server.js.
+// Reads transactions only; the only thing it ever writes is its own settings record ('dailyDigestConfig').
+// Same net-of-refund rule as computeRemoteOperationsPayload() in server.js.
 
 'use strict';
 
-const PH_OFFSET_MS = 8 * 60 * 60 * 1000;   // Asia/Manila = UTC+8, walang DST
+const PH_OFFSET_MS = 8 * 60 * 60 * 1000;   // Asia/Manila = UTC+8, no DST
 const DAY_MS = 24 * 60 * 60 * 1000;
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -47,7 +48,7 @@ function summarize(txs, key) {
         out.gross += gross; out.refunds += refunded; out.net += net;
         if (net > 0.009) out.transactions += 1;
         const pays = Array.isArray(tx.payments) && tx.payments.length ? tx.payments : [{ method: tx.payment_method || tx.method || 'UNKNOWN', amount: gross }];
-        // Ang payments[].amount ng CASH ay madalas ang BINAYAD (bago ang sukli). Bawasan ng sobra para tumugma sa halaga ng benta.
+        // payments[].amount for CASH is often the amount TENDERED (before change). Trim the excess so it matches the sale amount.
         let excess = Math.max(0, pays.reduce((a, p) => a + (Number(p.amount) || 0), 0) - gross);
         for (const p of pays) {
             const m = String(p.method || 'UNKNOWN').toUpperCase();
@@ -65,7 +66,7 @@ function summarize(txs, key) {
                 const t = items[code] || (items[code] = { code, name: it.name || code, qty: 0, sales: 0 });
                 const q = Number(it.quantity) || 0;
                 t.qty = round2(t.qty + q);
-                t.sales = round2(t.sales + Math.max(0, (Number(it.price) || 0) * q - Math.max(0, Number(it.itemDiscount) || 0)));   // net ng item discount (halaga, hindi %)
+                t.sales = round2(t.sales + Math.max(0, (Number(it.price) || 0) * q - Math.max(0, Number(it.itemDiscount) || 0)));   // net of item discount (an amount, not a %)
             }
         }
     }
@@ -76,24 +77,24 @@ function summarize(txs, key) {
 }
 
 function pctChange(now, before) {
-    if (!before) return now > 0 ? null : 0;    // walang basehan — hindi makalkula ang %
+    if (!before) return now > 0 ? null : 0;    // no baseline — % cannot be computed
     return Math.round(((now - before) / before) * 1000) / 10;
 }
 
 function buildText(storeName, d, cmp, voids) {
     const arrow = p => p == null ? '' : (p >= 0 ? ` (▲ ${p}%)` : ` (▼ ${Math.abs(p)}%)`);
     const lines = [];
-    lines.push(`📊 ${storeName || 'OmniPOS'} — Benta ${d.date}`);
-    lines.push(`Net sales: ${peso(d.net)}${arrow(cmp.vsYesterdayPct)} kumpara sa kahapon`);
-    if (cmp.vsLastWeekPct != null) lines.push(`Kumpara sa parehong araw noong nakaraang linggo:${arrow(cmp.vsLastWeekPct).trim()}`);
-    lines.push(`Transaksyon: ${d.transactions} • Average basket: ${peso(d.avgBasket)}`);
+    lines.push(`📊 ${storeName || 'OmniPOS'} — Sales ${d.date}`);
+    lines.push(`Net sales: ${peso(d.net)}${arrow(cmp.vsYesterdayPct)} vs yesterday`);
+    if (cmp.vsLastWeekPct != null) lines.push(`vs same day last week: ${arrow(cmp.vsLastWeekPct).trim()}`);
+    lines.push(`Transactions: ${d.transactions} • Average basket: ${peso(d.avgBasket)}`);
     if (d.refunds > 0) lines.push(`Refund: ${peso(d.refunds)}`);
     if (voids > 0) lines.push(`Void: ${voids}`);
     const pay = Object.entries(d.payments).sort((a, b) => b[1] - a[1]).map(([m, v]) => `${m} ${peso(v)}`);
-    if (pay.length) lines.push(`Bayad: ${pay.join(' • ')}`);
-    if (d.topItems.length) lines.push(`Top: ${d.topItems.slice(0, 3).map(i => `${i.name} x${i.qty}`).join(', ')}`);
+    if (pay.length) lines.push(`Payments: ${pay.join(' • ')}`);
+    if (d.topItems.length) lines.push(`Top items: ${d.topItems.slice(0, 3).map(i => `${i.name} x${i.qty}`).join(', ')}`);
     const peak = Object.entries(d.hourly).sort((a, b) => b[1] - a[1])[0];
-    if (peak && peak[1] > 0) lines.push(`Pinakamabentang oras: ${String(peak[0]).padStart(2, '0')}:00`);
+    if (peak && peak[1] > 0) lines.push(`Peak hour: ${String(peak[0]).padStart(2, '0')}:00`);
     return lines.join('\n');
 }
 
@@ -105,14 +106,14 @@ module.exports = function registerDailyDigest(deps) {
     const { app, readData, writeData, requirePermission, readRowsInIsoWindow, sendMail, logAction } = deps;
     const guard = typeof requirePermission === 'function' ? requirePermission('reports') : (req, res, next) => next();
     const isAdmin = req => String((req.authUser && req.authUser.role) || '').toLowerCase() === 'admin';
-    const adminOnly = (req, res, next) => isAdmin(req) ? next() : res.status(403).json({ success: false, message: 'Admin lang ang puwedeng magbago nito.' });
+    const adminOnly = (req, res, next) => isAdmin(req) ? next() : res.status(403).json({ success: false, message: 'Only an admin can change this.' });
     const getConfig = () => {
         let c = {};
         try { c = readData(FILE_CONFIG, {}) || {}; } catch (_e) { c = {}; }
         const hour = Number.isInteger(Number(c.hour)) && Number(c.hour) >= 0 && Number(c.hour) <= 23 ? Number(c.hour) : DEFAULT_CONFIG.hour;
         return { enabled: c.enabled === true, email: typeof c.email === 'string' ? c.email.trim() : '', hour, lastSentDay: typeof c.lastSentDay === 'string' ? c.lastSentDay : '' };
     };
-    // Ibinabalik ang true kung talagang na-save (ang writeData ay nagre-return ng false kapag pumalya ang database).
+    // Returns true only if the record was really saved (writeData returns false when the database write fails).
     const saveConfig = c => { try { return typeof writeData === 'function' && writeData(FILE_CONFIG, c) !== false; } catch (_e) { return false; } };
 
     function loadWindow(startMs, endMs) {
@@ -121,7 +122,7 @@ module.exports = function registerDailyDigest(deps) {
                 const rows = readRowsInIsoWindow('transactions', 'isoDate', startMs, endMs);
                 if (Array.isArray(rows)) return rows;
             }
-        } catch (_e) { /* fall back sa buong read */ }
+        } catch (_e) { /* fall back to a full read */ }
         const all = readData('transactions', []);
         return Array.isArray(all) ? all : [];
     }
@@ -178,12 +179,12 @@ module.exports = function registerDailyDigest(deps) {
             if (b.email !== undefined) next.email = String(b.email || '').trim().slice(0, 200);
             if (b.hour !== undefined) {
                 const h = Number(b.hour);
-                if (!Number.isInteger(h) || h < 0 || h > 23) return res.status(400).json({ success: false, message: 'Ang oras ay dapat 0 hanggang 23.' });
+                if (!Number.isInteger(h) || h < 0 || h > 23) return res.status(400).json({ success: false, message: 'Hour must be between 0 and 23.' });
                 next.hour = h;
             }
-            if (next.enabled && !EMAIL_RE.test(next.email)) return res.status(400).json({ success: false, message: 'Maglagay ng tamang email address para ma-enable.' });
-            if (next.enabled && !cur.enabled) next.lastSentDay = '';   // i-enable ngayon: payagan ang pagpapadala sa araw na ito kung lampas na ang oras
-            if (!saveConfig(next)) return res.status(500).json({ success: false, message: 'Hindi na-save ang settings (database error). Subukan ulit.' });
+            if (next.enabled && !EMAIL_RE.test(next.email)) return res.status(400).json({ success: false, message: 'Enter a valid email address to enable this.' });
+            if (next.enabled && !cur.enabled) next.lastSentDay = '';   // just enabled: allow sending today if the scheduled hour has already passed
+            if (!saveConfig(next)) return res.status(500).json({ success: false, message: 'Settings could not be saved (database error). Please try again.' });
             try { if (typeof logAction === 'function') logAction(req.authUser.username, `Daily Summary email ${next.enabled ? 'ENABLED (' + next.hour + ':00)' : 'DISABLED'}`); } catch (_e) { /* optional */ }
             res.json({ success: true, config: next });
         } catch (e) {
@@ -195,7 +196,7 @@ module.exports = function registerDailyDigest(deps) {
     async function emailDigest(to, key) {
         if (typeof sendMail !== 'function') throw new Error('Email sender is not available.');
         const d = buildDigest(key);
-        await sendMail(to, `📊 ${d.storeName || 'OmniPOS'} — Benta ${key}`, d.text);
+        await sendMail(to, `📊 ${d.storeName || 'OmniPOS'} — Sales ${key}`, d.text);
         return d;
     }
 
@@ -203,15 +204,15 @@ module.exports = function registerDailyDigest(deps) {
         try {
             const cfg = getConfig();
             const to = String((req.body && req.body.email) || cfg.email || '').trim();
-            if (!EMAIL_RE.test(to)) return res.status(400).json({ success: false, message: 'Maglagay muna ng tamang email address.' });
+            if (!EMAIL_RE.test(to)) return res.status(400).json({ success: false, message: 'Enter a valid email address first.' });
             await emailDigest(to, phDayKey(Date.now()));
-            res.json({ success: true, message: 'Naipadala na ang summary sa ' + to });
+            res.json({ success: true, message: 'Summary sent to ' + to });
         } catch (e) {
-            res.status(502).json({ success: false, message: 'Hindi naipadala: ' + ((e && e.message) || 'unknown error') + ' (I-check ang OTP sender email sa Receipt Settings.)' });
+            res.status(502).json({ success: false, message: 'Could not send: ' + ((e && e.message) || 'unknown error') + ' (Check the OTP sender email in Receipt Settings.)' });
         }
     });
 
-    // Scheduler: tuwing 60s, tingnan kung oras na (PH time) at hindi pa napapadala ngayong araw.
+    // Scheduler: every 60s, check whether it is time (PH time) and today's summary has not been sent yet.
     let sending = false, retryAfter = 0;
     async function tick() {
         if (sending || Date.now() < retryAfter) return;
@@ -221,16 +222,16 @@ module.exports = function registerDailyDigest(deps) {
             const now = Date.now(), key = phDayKey(now);
             if (cfg.lastSentDay === key || phHour(now) < cfg.hour) return;
             sending = true;
-            // I-mark muna bago ipadala para hindi magdoble kung bumagal ang email; ibabalik kapag nabigo para maulit sa susunod na tick.
-            if (!saveConfig({ ...cfg, lastSentDay: key })) { retryAfter = Date.now() + 15 * 60 * 1000; console.error('Daily Summary: hindi ma-save ang status — hindi muna magpapadala para hindi madoble.'); return; }
+            // Mark as sent BEFORE sending so a slow email cannot cause a duplicate; reverted on failure so it is retried.
+            if (!saveConfig({ ...cfg, lastSentDay: key })) { retryAfter = Date.now() + 15 * 60 * 1000; console.error('Daily Summary: could not save the sent-status, so nothing was sent (prevents duplicate emails).'); return; }
             try {
                 await emailDigest(cfg.email, key);
                 if (typeof logAction === 'function') logAction('Daily Summary', `Email sent to ${cfg.email} for ${key}`);
             } catch (err) {
                 const latest = getConfig();
                 if (latest.lastSentDay === key) saveConfig({ ...latest, lastSentDay: cfg.lastSentDay });
-                retryAfter = Date.now() + 15 * 60 * 1000;   // subukan ulit pagkalipas ng 15 minuto
-                console.error('Daily Summary email failed (uulitin sa loob ng 15 minuto):', err && err.message);
+                retryAfter = Date.now() + 15 * 60 * 1000;   // retry after 15 minutes
+                console.error('Daily Summary email failed (will retry in 15 minutes):', err && err.message);
             }
         } catch (e) {
             console.error('Daily Summary scheduler error:', e && e.message);

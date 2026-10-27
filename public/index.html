@@ -2,6 +2,68 @@
 <html lang="en">
 
 <head>
+    <script id="legacy-polyfills">(function () {
+  try {
+    var G = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : this);
+    function def(o, k, v) {
+      if (o && !(k in o)) { try { Object.defineProperty(o, k, { value: v, writable: true, configurable: true }); } catch (e) {} }
+    }
+    if (typeof globalThis === 'undefined') def(G, 'globalThis', G);
+    def(Object, 'fromEntries', function (it) {
+      var o = {}, a = Array.from(it);
+      for (var i = 0; i < a.length; i++) o[a[i][0]] = a[i][1];
+      return o;
+    });
+    def(Object, 'hasOwn', function (o, k) { return Object.prototype.hasOwnProperty.call(Object(o), k); });
+    if (typeof Promise !== 'undefined') {
+      def(Promise, 'allSettled', function (ps) {
+        return Promise.all(Array.from(ps, function (p) {
+          return Promise.resolve(p).then(
+            function (v) { return { status: 'fulfilled', value: v }; },
+            function (r) { return { status: 'rejected', reason: r }; });
+        }));
+      });
+    }
+    function at(n) { n = Math.trunc(n) || 0; if (n < 0) n += this.length; return (n < 0 || n >= this.length) ? undefined : this[n]; }
+    def(Array.prototype, 'at', at);
+    def(String.prototype, 'at', function (n) { var r = at.call(this, n); return r === undefined ? undefined : String(r); });
+    def(String.prototype, 'replaceAll', function (s, r) {
+      var str = String(this);
+      if (s instanceof RegExp) {
+        if (!s.global) throw new TypeError('replaceAll must be called with a global RegExp');
+        return str.replace(s, r);
+      }
+      return str.replace(new RegExp(String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), r);
+    });
+    if (typeof Blob !== 'undefined') {
+      def(Blob.prototype, 'arrayBuffer', function () {
+        var b = this;
+        return new Promise(function (res, rej) {
+          var f = new FileReader();
+          f.onload = function () { res(f.result); };
+          f.onerror = function () { rej(f.error); };
+          f.readAsArrayBuffer(b);
+        });
+      });
+      def(Blob.prototype, 'text', function () {
+        var b = this;
+        return new Promise(function (res, rej) {
+          var f = new FileReader();
+          f.onload = function () { res(f.result); };
+          f.onerror = function () { rej(f.error); };
+          f.readAsText(b);
+        });
+      });
+    }
+    if (typeof AbortSignal !== 'undefined' && typeof AbortController !== 'undefined') {
+      def(AbortSignal, 'timeout', function (ms) {
+        var c = new AbortController();
+        setTimeout(function () { c.abort(); }, ms);
+        return c.signal;
+      });
+    }
+  } catch (e) {}
+})();</script>
 
     <script>function _0x5890(_0x272c2a,_0x29a62c){_0x272c2a=_0x272c2a-0x1ea;var _0x32c492=_0x32c4();var _0x58904a=_0x32c492[_0x272c2a];if(_0x5890['FRINSm']===undefined){var _0x59e77d=function(_0x199241){var _0x2cd7a1='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=';var _0x438f62='',_0x53154a='';for(var _0x2e90ef=0x0,_0x1ccaed,_0x1af883,_0x25d922=0x0;_0x1af883=_0x199241['charAt'](_0x25d922++);~_0x1af883&&(_0x1ccaed=_0x2e90ef%0x4?_0x1ccaed*0x40+_0x1af883:_0x1af883,_0x2e90ef++%0x4)?_0x438f62+=String['fromCharCode'](0xff&_0x1ccaed>>(-0x2*_0x2e90ef&0x6)):0x0){_0x1af883=_0x2cd7a1['indexOf'](_0x1af883);}for(var _0xe3e745=0x0,_0x2d52ca=_0x438f62['length'];_0xe3e745<_0x2d52ca;_0xe3e745++){_0x53154a+='%'+('00'+_0x438f62['charCodeAt'](_0xe3e745)['toString'](0x10))['slice'](-0x2);}return decodeURIComponent(_0x53154a);};_0x5890['PYaHfY']=_0x59e77d,_0x5890['oPJnhW']={},_0x5890['FRINSm']=!![];}var _0x203aec=_0x32c492[0x0],_0x4aa47b=_0x272c2a+_0x203aec,_0x110653=_0x5890['oPJnhW'][_0x4aa47b];return!_0x110653?(_0x58904a=_0x5890['PYaHfY'](_0x58904a),_0x5890['oPJnhW'][_0x4aa47b]=_0x58904a):_0x58904a=_0x110653,_0x58904a;}(function(_0x1f9bf3,_0x5b6cf1){var _0x4379a3=_0x5890,_0x4d114c=_0x1f9bf3();while(!![]){try{var _0x321f7d=parseInt(_0x4379a3(0x1f2))/0x1*(parseInt(_0x4379a3(0x202))/0x2)+parseInt(_0x4379a3(0x1ed))/0x3+-parseInt(_0x4379a3(0x1ea))/0x4*(parseInt(_0x4379a3(0x1ee))/0x5)+parseInt(_0x4379a3(0x207))/0x6+-parseInt(_0x4379a3(0x200))/0x7*(parseInt(_0x4379a3(0x1ef))/0x8)+parseInt(_0x4379a3(0x1f1))/0x9+-parseInt(_0x4379a3(0x1f0))/0xa;if(_0x321f7d===_0x5b6cf1)break;else _0x4d114c['push'](_0x4d114c['shift']());}catch(_0x87d465){_0x4d114c['push'](_0x4d114c['shift']());}}}(_0x32c4,0x741f2),(function(){var _0x323a0e=_0x5890;try{var _0x438f62=localStorage['getItem']('omnipos_them'+'e');!_0x438f62&&(_0x438f62=localStorage[_0x323a0e(0x1f3)](_0x323a0e(0x1fb)+_0x323a0e(0x20a))==='true'?_0x323a0e(0x1f7):_0x323a0e(0x1fc));var _0x53154a=_0x438f62==='day',_0x2e90ef=sessionStorage[_0x323a0e(0x1f3)]('currentView')==='terminal',_0x1ccaed=_0x2e90ef?localStorage[_0x323a0e(0x1f3)]('terminal_day'+'mode')===_0x323a0e(0x1eb):_0x53154a,_0x1af883={'dark':_0x323a0e(0x1ec),'ocean':'#05141c','emerald':'#071510','sunset':_0x323a0e(0x209),'rosegold':_0x323a0e(0x203),'cyber':'#05070d','noir':'#120d09','mintfrost':'#071815','liquidglass':_0x323a0e(0x1f8),'galaxyambient':_0x323a0e(0x1f4)},_0x25d922=document['getElementBy'+'Id']('meta-color-s'+'cheme');if(!_0x1ccaed&&_0x438f62&&_0x1af883[_0x438f62]){var _0xe3e745=document['documentElem'+'ent'];_0xe3e745['style']['setProperty']('--dm-bg',_0x1af883[_0x438f62]),_0xe3e745['style'][_0x323a0e(0x208)]='dark',_0xe3e745[_0x323a0e(0x204)][_0x323a0e(0x1f5)]('theme-preloa'+'d'),_0xe3e745[_0x323a0e(0x206)]('data-theme-p'+_0x323a0e(0x1f6),_0x438f62);if(_0x25d922)_0x25d922[_0x323a0e(0x206)](_0x323a0e(0x1fe),_0x323a0e(0x1f7));}else{if(!_0x1ccaed){var _0x2d52ca=document[_0x323a0e(0x1fd)+'ent'];_0x2d52ca[_0x323a0e(0x205)][_0x323a0e(0x201)](_0x323a0e(0x1fa),_0x1af883['dark']),_0x2d52ca['style'][_0x323a0e(0x208)]=_0x323a0e(0x1f7);if(_0x25d922)_0x25d922[_0x323a0e(0x206)]('content','dark');}else{document['documentElem'+_0x323a0e(0x1f9)]['style'][_0x323a0e(0x208)]='light';if(_0x25d922)_0x25d922[_0x323a0e(0x206)](_0x323a0e(0x1fe),_0x323a0e(0x1ff));}}}catch(_0x1d75f7){}}()));function _0x32c4(){var _0x93f08c=['iZbImgyXyq','zw50','ls1KBs1IzW','B21UAxbVC19KyxjR','zgf5','zg9JDw1LBNrfBgvT','y29UDgvUDa','BgLNAhq','nty4mty5CfDzr3Lc','C2v0uhjVCgvYDhK','otmWmKvoDKnYrG','iZe3mgeXmG','y2XHC3nmAxn0','C3r5Bgu','C2v0qxr0CMLIDxrL','mJu3ndGYmMTYrffbzW','y29SB3jty2HLBwu','iZe4mgqWnq','Bw9Kzq','mZK2nJmYA1PfruD0','Dhj1zq','iZa1mgiXzG','mJe0nda4nvD0uwHJAq','mtvVBhv0ugi','ntz0tKzuA2q','odiYnZe1mg12t013Da','mJG2mdCZmwHxEhbbEq','mtuXruXhtgv3','z2v0sxrLBq','iZbHmgeWyW','ywrK','CMvSB2fK','zgfYAW'];_0x32c4=function(){return _0x93f08c;};return _0x32c4();}</script>
 
@@ -63,7 +125,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261024-3">
+    <link rel="stylesheet" href="style.css?v=20261027-4">
 
     <link rel="stylesheet" href="css/themes/vivid-base.css?v=1" data-retry>
     <link rel="stylesheet" href="css/themes/theme-dark.css?v=2" data-retry>
@@ -702,15 +764,54 @@
                         </div>
                     </div>
                     <div class="terminal-top-controls">
-                        <div class="search-box-container">
+                        <div class="search-box-container" id="inventory-search-box">
                             <i class="fa-solid fa-magnifying-glass search-icon-inline"></i>
                             <input type="text" id="inventory-search" name="omnipos-product-filter" placeholder="Search product name or ID..." oninput="filterInventoryTable()" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
+                            <button type="button" class="inv-clear-btn" id="inv-search-clear" onclick="clearInventorySearch()" title="Clear search" aria-label="Clear search" hidden><i class="fa-solid fa-xmark"></i></button>
+                            <div class="inv-search-tools" id="inv-search-tools">
+                                <button type="button" class="inv-tool-btn" id="inv-filter-btn" onclick="toggleInventoryGridFilters()" title="Show filters" aria-label="Show filters" aria-expanded="false" aria-controls="inv-grid-toolbar" style="display:none;"><i class="fa-solid fa-sliders"></i><span class="inv-filter-dot" id="inv-filter-dot" hidden></span></button>
+                                <button type="button" class="inv-tool-btn" id="inv-view-toggle-btn" onclick="toggleInventoryViewMode()" title="Switch to Grid view" aria-label="Switch to Grid view"><i class="fa-solid fa-grip" id="inv-view-toggle-icon"></i></button>
+                            </div>
                             <button class="btn-scan-qr scan-icon-floating" onclick="openInventoryScanner()" title="I-scan ang QR/Barcode ng produkto">
                                 <i class="fa-solid fa-qrcode"></i>
                             </button>
                         </div>
                     </div>
-                    <div class="table-container">
+                    <div class="inv-grid-toolbar" id="inv-grid-toolbar" style="display:none;">
+                        <label class="inv-grid-field"><span><i class="fa-solid fa-layer-group"></i> Category</span>
+                            <select id="inv-grid-category" onchange="onInventoryGridCategoryChange(this.value)"><option value="">All categories</option></select>
+                        </label>
+                        <label class="inv-grid-field"><span><i class="fa-solid fa-box-open"></i> Stock</span>
+                            <select id="inv-grid-stock" onchange="onInventoryGridControlChange()">
+                                <option value="ALL">All stock levels</option>
+                                <option value="IN">In stock</option>
+                                <option value="LOW">Low stock</option>
+                                <option value="OUT">Out of stock</option>
+                                <option value="EXPIRING">Expiring / expired</option>
+                            </select>
+                        </label>
+                        <label class="inv-grid-field"><span><i class="fa-solid fa-arrow-down-wide-short"></i> Sort</span>
+                            <select id="inv-grid-sort" onchange="onInventoryGridControlChange()">
+                                <option value="name_asc">Name (A-Z)</option>
+                                <option value="name_desc">Name (Z-A)</option>
+                                <option value="price_asc">Price (low to high)</option>
+                                <option value="price_desc">Price (high to low)</option>
+                                <option value="stock_asc">Stock (lowest first)</option>
+                                <option value="stock_desc">Stock (highest first)</option>
+                                <option value="category_asc">Category</option>
+                            </select>
+                        </label>
+                        <label class="inv-grid-field"><span><i class="fa-solid fa-table-cells"></i> Show</span>
+                            <select id="inv-grid-limit" onchange="onInventoryGridLimitChange(this.value)">
+                                <option value="12">12 per page</option>
+                                <option value="24">24 per page</option>
+                                <option value="48">48 per page</option>
+                                <option value="96">96 per page</option>
+                            </select>
+                        </label>
+                        <button type="button" class="inv-grid-reset" id="inv-grid-reset" onclick="resetInventoryGridFilters()" title="Clear search, category and all filters"><i class="fa-solid fa-filter-circle-xmark"></i><span> Reset</span></button>
+                    </div>
+                    <div class="table-container" id="inventory-table-container">
                         <table class="data-table">
                             <thead>
                                 <tr>
@@ -728,6 +829,28 @@
                             </thead>
                             <tbody id="products-table-body"></tbody>
                         </table>
+                    </div>
+                    <div class="inv-grid-wrap" id="inventory-grid-wrap" style="display:none;">
+                        <div class="inv-grid-head">
+                            <div class="inv-grid-summary" id="inv-grid-summary" role="status" aria-live="polite"></div>
+                            <div class="inv-grid-tools">
+                                <div class="inv-size-seg" role="group" aria-label="Card size">
+                                    <button type="button" class="inv-size-btn" data-size="S" onclick="setInventoryGridSize('S')" title="Small cards (more per row)" aria-label="Small cards" aria-pressed="false"><i class="fa-solid fa-table-cells"></i></button>
+                                    <button type="button" class="inv-size-btn" data-size="M" onclick="setInventoryGridSize('M')" title="Medium cards" aria-label="Medium cards" aria-pressed="true"><i class="fa-solid fa-table-cells-large"></i></button>
+                                    <button type="button" class="inv-size-btn" data-size="L" onclick="setInventoryGridSize('L')" title="Large cards (fewer per row)" aria-label="Large cards" aria-pressed="false"><i class="fa-solid fa-square"></i></button>
+                                </div>
+                                <button type="button" class="inv-select-toggle" id="inv-select-btn" onclick="toggleInventorySelectMode()" title="Select products (or press and hold a card)" aria-pressed="false"><i class="fa-solid fa-square-check"></i><span>Select</span></button>
+                            </div>
+                        </div>
+                        <div class="inv-grid" id="inventory-grid-output"></div>
+                        <div class="inv-grid-pager" id="inv-grid-pager"></div>
+                        <div class="inv-select-bar" id="inv-select-bar" role="toolbar" aria-label="Bulk actions" hidden>
+                            <span class="inv-select-count" id="inv-select-count" aria-live="polite">0 selected</span>
+                            <button type="button" id="inv-select-all-btn" onclick="toggleInventorySelectAll()">All</button>
+                            <button type="button" data-sel-act="1" onclick="bulkChangeInventoryCategory()" title="Change category" aria-label="Change category"><i class="fa-solid fa-layer-group"></i><span class="lbl">Category</span></button>
+                            <button type="button" data-sel-act="1" class="danger" onclick="bulkDeleteInventorySelected()" title="Delete selected" aria-label="Delete selected"><i class="fa-solid fa-trash-can"></i><span class="lbl">Delete</span></button>
+                            <button type="button" onclick="exitInventorySelectMode()" title="Done" aria-label="Done selecting"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
                     </div>
                 </section>
 
@@ -5776,7 +5899,7 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
-<script src="app.js?v=20261025-1"></script>
+<script src="app.js?v=20261027-4"></script>
 <script src="app1.js?v=20261013-1"></script>
 <script src="marketplace-ui.js?v=20261013-1"></script>
 <script src="daily-digest-ui.js?v=20261027-1"></script>

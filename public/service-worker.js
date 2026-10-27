@@ -1,4 +1,68 @@
-const CACHE_VERSION = 'omnipos-shell-v126';
+// Old Android WebViews (Chrome 70-75) lack some APIs this worker uses (e.g. Promise.allSettled). Guarded, no-op on modern browsers.
+(function () {
+  try {
+    var G = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : this);
+    function def(o, k, v) {
+      if (o && !(k in o)) { try { Object.defineProperty(o, k, { value: v, writable: true, configurable: true }); } catch (e) {} }
+    }
+    if (typeof globalThis === 'undefined') def(G, 'globalThis', G);
+    def(Object, 'fromEntries', function (it) {
+      var o = {}, a = Array.from(it);
+      for (var i = 0; i < a.length; i++) o[a[i][0]] = a[i][1];
+      return o;
+    });
+    def(Object, 'hasOwn', function (o, k) { return Object.prototype.hasOwnProperty.call(Object(o), k); });
+    if (typeof Promise !== 'undefined') {
+      def(Promise, 'allSettled', function (ps) {
+        return Promise.all(Array.from(ps, function (p) {
+          return Promise.resolve(p).then(
+            function (v) { return { status: 'fulfilled', value: v }; },
+            function (r) { return { status: 'rejected', reason: r }; });
+        }));
+      });
+    }
+    function at(n) { n = Math.trunc(n) || 0; if (n < 0) n += this.length; return (n < 0 || n >= this.length) ? undefined : this[n]; }
+    def(Array.prototype, 'at', at);
+    def(String.prototype, 'at', function (n) { var r = at.call(this, n); return r === undefined ? undefined : String(r); });
+    def(String.prototype, 'replaceAll', function (s, r) {
+      var str = String(this);
+      if (s instanceof RegExp) {
+        if (!s.global) throw new TypeError('replaceAll must be called with a global RegExp');
+        return str.replace(s, r);
+      }
+      return str.replace(new RegExp(String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), r);
+    });
+    if (typeof Blob !== 'undefined') {
+      def(Blob.prototype, 'arrayBuffer', function () {
+        var b = this;
+        return new Promise(function (res, rej) {
+          var f = new FileReader();
+          f.onload = function () { res(f.result); };
+          f.onerror = function () { rej(f.error); };
+          f.readAsArrayBuffer(b);
+        });
+      });
+      def(Blob.prototype, 'text', function () {
+        var b = this;
+        return new Promise(function (res, rej) {
+          var f = new FileReader();
+          f.onload = function () { res(f.result); };
+          f.onerror = function () { rej(f.error); };
+          f.readAsText(b);
+        });
+      });
+    }
+    if (typeof AbortSignal !== 'undefined' && typeof AbortController !== 'undefined') {
+      def(AbortSignal, 'timeout', function (ms) {
+        var c = new AbortController();
+        setTimeout(function () { c.abort(); }, ms);
+        return c.signal;
+      });
+    }
+  } catch (e) {}
+})();
+
+const CACHE_VERSION = 'omnipos-shell-v130';
 
 // A weak store Wi-Fi must never freeze the POS: if the network does not answer within this time and a cached copy
 // exists, the cached copy is used right away and the cache is refreshed in the background when the network replies.

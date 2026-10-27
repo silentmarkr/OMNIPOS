@@ -2,14 +2,19 @@ const fs = require("fs");
 const path = require("path");
 const { parentPort, workerData } = require("worker_threads");
 const JavaScriptObfuscator = require("javascript-obfuscator");
+const { lowerForLegacy } = require("./legacy-lower.js");
 
 try {
   const { srcPath, destPath, options, code } = workerData;
+  // Browser (client) code is first lowered to Chrome 70-compatible syntax so old Android WebViews can run it.
+  const isBrowser = !!(options && options.target === "browser");
   if (typeof code === "string") {
-    const result = JavaScriptObfuscator.obfuscate(code, options);
+    const input = isBrowser ? lowerForLegacy(code, "inline-script") : code;
+    const result = JavaScriptObfuscator.obfuscate(input, options);
     parentPort.postMessage({ ok: true, obfuscatedCode: result.getObfuscatedCode() });
   } else {
-    const source = fs.readFileSync(srcPath, "utf8");
+    const raw = fs.readFileSync(srcPath, "utf8");
+    const source = isBrowser ? lowerForLegacy(raw, path.basename(srcPath)) : raw;
     const result = JavaScriptObfuscator.obfuscate(source, options);
     fs.mkdirSync(path.dirname(destPath), { recursive: true });
     fs.writeFileSync(destPath, result.getObfuscatedCode(), "utf8");

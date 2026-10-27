@@ -12363,6 +12363,8 @@ async function silentRefreshInventoryStock() {
 }
 
 function patchInventoryProductsTableInPlace() {
+    // Grid view: the render is signature-guarded, so it only rebuilds when something visible changed.
+    if (inventoryViewMode === 'grid') { renderInventoryGrid(); return; }
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
     const searchBox = document.getElementById('inventory-search');
@@ -19773,6 +19775,34 @@ function renderTransactionsRows(transactions) {
     appendLoadMoreRow();
 }
 let cachedInventoryProducts = [];
+// Products page view state (List = table, Grid = product cards). The choice is remembered per device.
+const INV_VIEW_MODE_KEY = 'omnipos_inventory_view_mode';
+const INV_GRID_LIMIT_KEY = 'omnipos_inventory_grid_limit';
+const INV_GRID_LIMITS = [12, 24, 48, 96];
+const INV_GRID_NONE_CATEGORY = '__NONE__';
+const INV_GRID_MULTI_CATEGORY = '__MULTI__';
+let inventoryViewMode = (function () { try { return localStorage.getItem(INV_VIEW_MODE_KEY) === 'grid' ? 'grid' : 'list'; } catch (e) { return 'list'; } })();
+let inventoryGridLimit = (function () { try { const n = parseInt(localStorage.getItem(INV_GRID_LIMIT_KEY), 10); return INV_GRID_LIMITS.includes(n) ? n : 24; } catch (e) { return 24; } })();
+let inventoryGridPage = 1;
+let inventoryGridStock = 'ALL';
+let inventoryGridSort = 'name_asc';
+let inventoryGridSignature = '';
+let inventoryGridCategorySig = '';
+let inventoryFiltersOpen = false;
+let inventoryFiltersTimer = null;
+let inventoryFiltersLastActivity = 0;
+const INV_FILTERS_AUTOHIDE_MS = 8000;
+// Grid card size (S / M / L) and Select mode (bulk actions). Size is remembered per device;
+// the selection itself is never saved (it only lives while Select mode is on).
+const INV_GRID_SIZE_KEY = 'omnipos_inventory_grid_size';
+const INV_LONG_PRESS_MS = 520;
+let inventoryGridSize = (function () { try { const v = localStorage.getItem(INV_GRID_SIZE_KEY); return (v === 'S' || v === 'L') ? v : 'M'; } catch (e) { return 'M'; } })();
+let inventorySelectMode = false;
+let inventorySelected = new Set();
+let inventoryGridListTotal = 0;
+let invLongPressTimer = null;
+let invLongPressFired = false;
+let invLongPressStart = null;
 
 // ---------------------------------------------------------------------------
 // LITE PRODUCT LOADING (mabilis na Inventory kahit HD ang mga photo)
@@ -20136,7 +20166,8 @@ async function hydratePendingTerminalPhotos() {
     }
 }
 function updateInventoryLoadStatus() {
-    const table = document.getElementById('products-table-body')?.closest('table');
+    // Anchor on the table's wrapper so the status bar stays visible in both List and Grid view.
+    const table = document.getElementById('inventory-table-container') || document.getElementById('products-table-body')?.closest('table');
     if (!table || !table.parentNode) return;
     let bar = document.getElementById('inv-load-status');
     let text = '';
@@ -20153,7 +20184,7 @@ function updateInventoryLoadStatus() {
         bar = document.createElement('div');
         bar.id = 'inv-load-status';
         bar.setAttribute('role', 'status');
-        bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 0 8px 0;border-radius:8px;background:rgba(59,130,246,0.10);color:#2563eb;font-size:0.85rem;font-weight:600;';
+        bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 0 8px 0;border-radius:8px;background:rgba(59,130,246,0.10);color:#2563eb;font-size:0.85rem;font-weight:600;flex-shrink:0;';
         table.parentNode.insertBefore(bar, table);
     }
     bar.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>${escapeHtml(text)}</span>`;
@@ -20183,6 +20214,7 @@ function buildInventoryPhotoNode(p) {
     return box;
 }
 function updateInventoryRowImage(code) {
+    updateInventoryGridCardImage(code);
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
     const row = Array.from(tbody.querySelectorAll('tr')).find(r => r.getAttribute('data-code') === String(code));
@@ -20423,12 +20455,14 @@ function applyColumnFilter(field) {
     const allCbs = [...list.querySelectorAll('input[type="checkbox"]')];
     const checked = allCbs.filter(cb => cb.checked).map(cb => cb.value);
     columnFilters[field] = (checked.length === 0 || checked.length === allCbs.length) ? new Set() : new Set(checked);
+    inventoryGridPage = 1;
     updateFilterIconStates();
     closeColumnFilterDropdown();
     renderInventoryProductsTable();
 }
 function clearColumnFilter(field) {
     columnFilters[field] = new Set();
+    inventoryGridPage = 1;
     updateFilterIconStates();
     closeColumnFilterDropdown();
     renderInventoryProductsTable();
@@ -20781,6 +20815,7 @@ async function reviewStockReturn(returnId) {
     }
 }
 async function loadInventoryProductsTable() {
+    applyInventoryViewModeUi();
     const requestVersion = productCatalogMutationVersion;
     inventoryLoadsInFlight++;
     inventoryLoadFailed = false;
@@ -20812,11 +20847,15 @@ async function loadInventoryProductsTable() {
     hydratePendingProductImages();
 }
 function filterInventoryTable() {
+    inventoryGridPage = 1;
     renderInventoryProductsTable();
 }
 function renderInventoryProductsTable() {
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
+    syncInventorySearchTools();
+    // Grid view hides the table completely; render the cards instead.
+    if (inventoryViewMode === 'grid') { renderInventoryGrid(); return; }
     // Double-click (or double-tap) anywhere on a product row opens that product's details.
     // Bound once on the table body, so it keeps working after every re-render.
     if (!tbody.dataset.rowDblBound) {
@@ -20912,6 +20951,21 @@ function renderInventoryProductsTable() {
     }
 }
 function highlightInventoryRow(code) {
+    if (inventoryViewMode === 'grid') {
+        // Jump to the page that contains the product, then pulse its card.
+        const list = getInventoryGridList();
+        const idx = list.findIndex(p => p && String(p.code) === String(code));
+        if (idx < 0) return;
+        inventoryGridPage = Math.floor(idx / inventoryGridLimit) + 1;
+        renderInventoryGrid();
+        const out = document.getElementById('inventory-grid-output');
+        const card = out ? out.querySelector(`.inv-card[data-code="${CSS.escape(String(code))}"]`) : null;
+        if (!card) return;
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('inv-card-highlight');
+        setTimeout(() => card.classList.remove('inv-card-highlight'), 2000);
+        return;
+    }
     const tbody = document.getElementById('products-table-body');
     if (!tbody) return;
     const row = tbody.querySelector(`tr[data-code="${CSS && CSS.escape ? CSS.escape(code) : code}"]`);
@@ -20919,6 +20973,775 @@ function highlightInventoryRow(code) {
     row.scrollIntoView({ behavior:'smooth', block:'center' });
     row.classList.add('row-scan-highlight');
     setTimeout(() => row.classList.remove('row-scan-highlight'), 2000);
+}
+// ======================================================================
+// Products page: List / Grid view
+// List view = the original table. Grid view = product cards (same size
+// feel as the POS terminal cards) with category filter, stock filter,
+// sorting and a per-page limit. Only one of the two is visible at a time.
+// ======================================================================
+function getInventoryProductStatus(p) {
+    const rawThreshold = parseInt(p && p.lowStockThreshold, 10);
+    const threshold = Number.isFinite(rawThreshold) ? rawThreshold : 5;
+    const stockNum = parseFloat(p && p.stock) || 0;
+    const hasBatches = !!p && Array.isArray(p.batches) && p.batches.length > 0;
+    // With batches, the nearest expiry among batches that still have stock wins.
+    let expiry = (p && p.expiryDate) || null;
+    if (hasBatches) {
+        const dated = p.batches.filter(b => b && b.expiryDate && (parseFloat(b.quantity) || 0) > 0);
+        dated.sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
+        expiry = dated.length > 0 ? dated[0].expiryDate : null;
+    }
+    let daysLeft = null;
+    if (expiry) {
+        const d = new Date(expiry);
+        if (isNaN(d.getTime())) expiry = null;
+        else daysLeft = Math.ceil((d - new Date()) / 86400000);
+    }
+    return {
+        stockNum, threshold, hasBatches, expiry, daysLeft,
+        isOut: stockNum <= 0,
+        isLow: stockNum > 0 && stockNum <= threshold,
+        isExpired: daysLeft !== null && daysLeft < 0,
+        isExpiring: daysLeft !== null && daysLeft >= 0 && daysLeft <= 7
+    };
+}
+// Search box + column filters (shared by the list and the grid so both always agree).
+function getInventoryFilteredProducts() {
+    const searchBox = document.getElementById('inventory-search');
+    const query = searchBox ? searchBox.value.trim().toLowerCase() : '';
+    const source = Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [];
+    return source.filter(p => {
+        if (!p || typeof p !== 'object') return false;
+        if (query && !((p.name || '').toLowerCase().includes(query) || (p.code || '').toLowerCase().includes(query))) return false;
+        for (const field in columnFilters) {
+            if (columnFilters[field].size > 0 && !columnFilters[field].has(getColumnDisplayValue(field, p))) return false;
+        }
+        return true;
+    });
+}
+// Grid list = shared filters + stock-level filter + sort.
+function getInventoryGridList() {
+    let list = getInventoryFilteredProducts();
+    if (inventoryGridStock !== 'ALL') {
+        list = list.filter(p => {
+            const st = getInventoryProductStatus(p);
+            switch (inventoryGridStock) {
+                case 'IN': return !st.isOut;
+                case 'LOW': return st.isLow;
+                case 'OUT': return st.isOut;
+                case 'EXPIRING': return st.isExpired || st.isExpiring;
+                default: return true;
+            }
+        });
+    }
+    const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const num = (v) => parseFloat(v) || 0;
+    const sorters = {
+        name_asc: byName,
+        name_desc: (a, b) => byName(b, a),
+        price_asc: (a, b) => num(a.price) - num(b.price) || byName(a, b),
+        price_desc: (a, b) => num(b.price) - num(a.price) || byName(a, b),
+        stock_asc: (a, b) => num(a.stock) - num(b.stock) || byName(a, b),
+        stock_desc: (a, b) => num(b.stock) - num(a.stock) || byName(a, b),
+        category_asc: (a, b) => String(a.category || '').localeCompare(String(b.category || ''), undefined, { numeric: true, sensitivity: 'base' }) || byName(a, b)
+    };
+    list.sort(sorters[inventoryGridSort] || byName);
+    return list;
+}
+function applyInventoryViewModeUi() {
+    const isGrid = inventoryViewMode === 'grid';
+    const tableBox = document.getElementById('inventory-table-container');
+    const gridWrap = document.getElementById('inventory-grid-wrap');
+    if (tableBox) tableBox.style.display = isGrid ? 'none' : '';
+    if (gridWrap) gridWrap.style.display = isGrid ? '' : 'none';
+    // One icon button: it shows the view you will switch TO.
+    const toggleBtn = document.getElementById('inv-view-toggle-btn');
+    const toggleIcon = document.getElementById('inv-view-toggle-icon');
+    if (toggleBtn) {
+        const label = isGrid ? 'Switch to List view' : 'Switch to Grid view';
+        toggleBtn.title = label;
+        toggleBtn.setAttribute('aria-label', label);
+    }
+    if (toggleIcon) toggleIcon.className = isGrid ? 'fa-solid fa-list' : 'fa-solid fa-grip';
+    // The filter icon only exists in Grid view (List view has its own column filters).
+    const filterBtn = document.getElementById('inv-filter-btn');
+    if (filterBtn) filterBtn.style.display = isGrid ? '' : 'none';
+    const box = document.getElementById('inventory-search-box');
+    if (box) box.classList.toggle('inv-has-filter', isGrid);
+    if (!isGrid) setInventoryFiltersOpen(false);
+    else applyInventoryFiltersOpenUi();
+    updateInventoryFilterIndicator();
+    syncInventoryGridControls();
+}
+function toggleInventoryViewMode() {
+    setInventoryViewMode(inventoryViewMode === 'grid' ? 'list' : 'grid');
+}
+// ---- Grid filters panel: opens from the filter icon, hides by itself after 8s without activity ----
+function applyInventoryFiltersOpenUi() {
+    const open = inventoryFiltersOpen && inventoryViewMode === 'grid';
+    const toolbar = document.getElementById('inv-grid-toolbar');
+    const btn = document.getElementById('inv-filter-btn');
+    if (toolbar) toolbar.style.display = open ? '' : 'none';
+    if (btn) {
+        btn.classList.toggle('open', open);
+        btn.setAttribute('aria-expanded', String(open));
+        const label = open ? 'Hide filters' : 'Show filters';
+        btn.title = label;
+        btn.setAttribute('aria-label', label);
+    }
+}
+function setInventoryFiltersOpen(open) {
+    inventoryFiltersOpen = !!open;
+    if (inventoryFiltersTimer) { clearTimeout(inventoryFiltersTimer); inventoryFiltersTimer = null; }
+    if (inventoryFiltersOpen) {
+        bindInventoryFiltersActivity();
+        noteInventoryFiltersActivity();
+    }
+    applyInventoryFiltersOpenUi();
+}
+function toggleInventoryGridFilters() {
+    setInventoryFiltersOpen(!inventoryFiltersOpen);
+}
+function noteInventoryFiltersActivity() {
+    if (!inventoryFiltersOpen) return;
+    inventoryFiltersLastActivity = Date.now();
+    if (inventoryFiltersTimer) clearTimeout(inventoryFiltersTimer);
+    inventoryFiltersTimer = setTimeout(checkInventoryFiltersAutoHide, INV_FILTERS_AUTOHIDE_MS);
+}
+function checkInventoryFiltersAutoHide() {
+    inventoryFiltersTimer = null;
+    if (!inventoryFiltersOpen) return;
+    const idle = Date.now() - inventoryFiltersLastActivity;
+    if (idle < INV_FILTERS_AUTOHIDE_MS) {
+        inventoryFiltersTimer = setTimeout(checkInventoryFiltersAutoHide, INV_FILTERS_AUTOHIDE_MS - idle);
+        return;
+    }
+    // A dropdown may still be open in the browser: give it a bit longer before closing the panel.
+    const active = document.activeElement;
+    const toolbar = document.getElementById('inv-grid-toolbar');
+    if (active && toolbar && toolbar.contains(active) && active.tagName === 'SELECT' && idle < INV_FILTERS_AUTOHIDE_MS * 4) {
+        inventoryFiltersTimer = setTimeout(checkInventoryFiltersAutoHide, 2000);
+        return;
+    }
+    setInventoryFiltersOpen(false);
+}
+function bindInventoryFiltersActivity() {
+    const toolbar = document.getElementById('inv-grid-toolbar');
+    if (!toolbar || toolbar.dataset.activityBound) return;
+    toolbar.dataset.activityBound = '1';
+    ['pointerdown', 'pointermove', 'touchstart', 'keydown', 'focusin', 'focusout', 'change', 'input', 'wheel'].forEach(evt => {
+        toolbar.addEventListener(evt, noteInventoryFiltersActivity, { passive: true });
+    });
+    // A picked dropdown value should not keep the panel alive forever.
+    toolbar.addEventListener('change', (e) => {
+        const t = e.target;
+        if (t && t.tagName === 'SELECT' && typeof t.blur === 'function') t.blur();
+    });
+    // Typing in the search box or scrolling the grid also counts as activity.
+    const search = document.getElementById('inventory-search');
+    if (search) search.addEventListener('input', noteInventoryFiltersActivity, { passive: true });
+}
+// Dot on the filter icon when any filter (other than the search text) is active.
+function updateInventoryFilterIndicator() {
+    const dot = document.getElementById('inv-filter-dot');
+    if (!dot) return;
+    let active = inventoryGridStock !== 'ALL';
+    for (const field in columnFilters) { if (columnFilters[field].size > 0) active = true; }
+    dot.hidden = !active;
+}
+// While a word is typed in the search box, the three icons hide to give the text room.
+function syncInventorySearchTools() {
+    const box = document.getElementById('inventory-search-box');
+    const input = document.getElementById('inventory-search');
+    if (!box || !input) return;
+    const typing = input.value.length > 0;
+    box.classList.toggle('inv-typing', typing);
+    const clearBtn = document.getElementById('inv-search-clear');
+    if (clearBtn) clearBtn.hidden = !typing;
+}
+function clearInventorySearch() {
+    const input = document.getElementById('inventory-search');
+    if (!input) return;
+    input.value = '';
+    filterInventoryTable();
+    try { input.focus(); } catch (e) {}
+}
+function syncInventoryGridControls() {
+    const stockSel = document.getElementById('inv-grid-stock');
+    const sortSel = document.getElementById('inv-grid-sort');
+    const limitSel = document.getElementById('inv-grid-limit');
+    if (stockSel && stockSel.value !== inventoryGridStock) stockSel.value = inventoryGridStock;
+    if (sortSel && sortSel.value !== inventoryGridSort) sortSel.value = inventoryGridSort;
+    if (limitSel && limitSel.value !== String(inventoryGridLimit)) limitSel.value = String(inventoryGridLimit);
+}
+function setInventoryViewMode(mode) {
+    if (mode !== 'list' && mode !== 'grid') return;
+    inventoryViewMode = mode;
+    try { localStorage.setItem(INV_VIEW_MODE_KEY, mode); } catch (e) {}
+    if (mode === 'list') exitInventorySelectMode();
+    inventoryGridSignature = '';
+    closeColumnFilterDropdown();
+    applyInventoryViewModeUi();
+    renderInventoryProductsTable();
+}
+// The category dropdown drives the same Set as the table's Category column filter,
+// so the two views never disagree about which category is selected.
+function syncInventoryGridCategoryOptions() {
+    const sel = document.getElementById('inv-grid-category');
+    if (!sel) return;
+    const source = Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [];
+    const counts = new Map();
+    source.forEach(p => {
+        if (!p) return;
+        const c = p.category || '';
+        counts.set(c, (counts.get(c) || 0) + 1);
+    });
+    const cats = Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const active = columnFilters.category;
+    let selected = '';
+    if (active.size === 1) {
+        const only = Array.from(active)[0];
+        selected = only === '' ? INV_GRID_NONE_CATEGORY : only;
+    } else if (active.size > 1) {
+        selected = INV_GRID_MULTI_CATEGORY;
+    }
+    const sig = selected + '|' + cats.map(c => c + ':' + counts.get(c)).join(',');
+    if (sig === inventoryGridCategorySig) return;
+    inventoryGridCategorySig = sig;
+    const addOption = (value, label) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        sel.appendChild(opt);
+    };
+    sel.innerHTML = '';
+    addOption('', `All categories (${source.length})`);
+    cats.forEach(c => addOption(c === '' ? INV_GRID_NONE_CATEGORY : c, `${c === '' ? '(Uncategorized)' : c} (${counts.get(c)})`));
+    if (selected === INV_GRID_MULTI_CATEGORY) {
+        addOption(INV_GRID_MULTI_CATEGORY, `Multiple selected (${active.size})`);
+    } else if (selected && !cats.some(c => (c === '' ? INV_GRID_NONE_CATEGORY : c) === selected)) {
+        addOption(selected, `${selected} (0)`);
+    }
+    sel.value = selected;
+}
+function onInventoryGridCategoryChange(value) {
+    if (value === INV_GRID_MULTI_CATEGORY) return;
+    columnFilters.category = value === '' ? new Set() : new Set([value === INV_GRID_NONE_CATEGORY ? '' : value]);
+    inventoryGridPage = 1;
+    updateFilterIconStates();
+    renderInventoryProductsTable();
+}
+function onInventoryGridControlChange() {
+    const stockSel = document.getElementById('inv-grid-stock');
+    const sortSel = document.getElementById('inv-grid-sort');
+    if (stockSel) inventoryGridStock = stockSel.value || 'ALL';
+    if (sortSel) inventoryGridSort = sortSel.value || 'name_asc';
+    inventoryGridPage = 1;
+    renderInventoryGrid();
+}
+function onInventoryGridLimitChange(value) {
+    const next = parseInt(value, 10);
+    if (!INV_GRID_LIMITS.includes(next)) { syncInventoryGridControls(); return; }
+    // Keep the first card on screen where it was, even though the page size changed.
+    const firstIndex = (inventoryGridPage - 1) * inventoryGridLimit;
+    inventoryGridLimit = next;
+    inventoryGridPage = Math.floor(firstIndex / next) + 1;
+    try { localStorage.setItem(INV_GRID_LIMIT_KEY, String(next)); } catch (e) {}
+    renderInventoryGrid();
+}
+function resetInventoryGridFilters() {
+    const searchBox = document.getElementById('inventory-search');
+    if (searchBox) searchBox.value = '';
+    for (const field in columnFilters) columnFilters[field] = new Set();
+    inventoryGridStock = 'ALL';
+    inventoryGridPage = 1;
+    updateFilterIconStates();
+    closeColumnFilterDropdown();
+    renderInventoryProductsTable();
+}
+function setInventoryGridPage(page) {
+    const n = parseInt(page, 10);
+    if (!Number.isFinite(n)) return;
+    inventoryGridPage = Math.max(1, n);
+    renderInventoryGrid();
+    const wrap = document.getElementById('inventory-grid-wrap');
+    if (wrap) wrap.scrollTop = 0;
+    const summary = document.getElementById('inv-grid-summary');
+    if (summary && summary.scrollIntoView) summary.scrollIntoView({ block: 'nearest' });
+}
+function buildInventoryGridPhotoNode(p) {
+    if (p.image) {
+        const img = document.createElement('img');
+        img.className = 'inv-card-img';
+        img.alt = p.name || 'Product';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.draggable = false;
+        if (p.imageVer) img.dataset.imgVer = String(p.imageVer);
+        // A broken/expired image falls back to the category icon instead of a broken-image glyph.
+        img.addEventListener('error', () => {
+            const box = document.createElement('div');
+            box.className = 'inv-card-fallback';
+            box.innerHTML = `<i class="${getCategoryIconClass(p.category)}"></i>`;
+            if (img.parentNode) img.parentNode.replaceChild(box, img);
+        }, { once: true });
+        img.src = p.image;
+        return img;
+    }
+    const box = document.createElement('div');
+    box.className = 'inv-card-fallback';
+    box.innerHTML = p._imgPending
+        ? '<i class="fa-solid fa-spinner fa-spin"></i>'
+        : `<i class="${getCategoryIconClass(p.category)}"></i>`;
+    return box;
+}
+function updateInventoryGridCardImage(code) {
+    const out = document.getElementById('inventory-grid-output');
+    if (!out || code == null) return;
+    const card = out.querySelector(`.inv-card[data-code="${CSS.escape(String(code))}"]`);
+    if (!card) return;
+    const p = (cachedInventoryProducts || []).find(prod => prod && String(prod.code) === String(code));
+    if (!p || p._imgPending) return;
+    const slot = card.querySelector('.inv-card-photo');
+    if (slot) {
+        slot.innerHTML = '';
+        slot.appendChild(buildInventoryGridPhotoNode(p));
+    }
+}
+function buildInventoryGridCard(p) {
+    const st = getInventoryProductStatus(p);
+    const card = document.createElement('div');
+    card.className = 'inv-card' + (st.isOut ? ' is-out' : (st.isLow ? ' is-low' : ''));
+    const code = p.code == null ? '' : String(p.code);
+    const name = p.name || 'Unnamed Product';
+    card.setAttribute('data-code', code);
+    const isPicked = inventorySelected.has(invSelKey(code));
+    if (isPicked) card.classList.add('is-selected');
+    card.setAttribute('role', inventorySelectMode ? 'checkbox' : 'button');
+    if (inventorySelectMode) card.setAttribute('aria-checked', isPicked ? 'true' : 'false');
+    card.tabIndex = 0;
+    card.setAttribute('aria-label', `${name} — view details`);
+
+    let flag = null;
+    if (st.isOut) flag = { cls: 'out', text: 'Out of stock' };
+    else if (st.isExpired) flag = { cls: 'exp', text: 'Expired' };
+    else if (st.isLow) flag = { cls: 'low', text: 'Low stock' };
+    else if (st.isExpiring) flag = { cls: 'soon', text: st.daysLeft === 0 ? 'Expires today' : `Exp in ${st.daysLeft}d` };
+
+    const stockCls = st.isOut ? 'out' : (st.isLow ? 'low' : '');
+    const meterPct = st.isOut ? 0 : Math.max(6, Math.min(100, (st.stockNum / Math.max(st.threshold * 4, 1)) * 100));
+    const stockText = typeof formatQty === 'function' ? formatQty(st.stockNum) : String(st.stockNum);
+
+    // Expiry / supplier / code are no longer printed on the card (it is compact now);
+    // they stay available as a tooltip and in the details modal.
+    const tipParts = [name];
+    if (code) tipParts.push(`Code: ${code}`);
+    if (st.expiry) tipParts.push(st.isExpired ? `Expired ${Math.abs(st.daysLeft)}d ago` : `Exp ${st.expiry}`);
+    else if (p.supplier) tipParts.push(`Supplier: ${p.supplier}`);
+    const tip = tipParts.join(' • ');
+
+    const catLabel = p.category || 'Uncategorized';
+    const priceText = `₱${(parseFloat(p.price) || 0).toFixed(2)}`;
+    card.innerHTML = `
+        <div class="inv-card-media">
+            <div class="inv-card-photo"></div>
+            <span class="inv-card-check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
+            ${productHasDetails(p) ? '<span class="inv-card-spec" title="Has specs / description"><i class="fa-solid fa-circle-info"></i></span>' : ''}
+            ${flag ? `<span class="inv-card-flag ${flag.cls}">${escapeHtml(flag.text)}</span>` : ''}
+            <div class="inv-card-chips">
+                <span class="inv-card-cat" title="${escapeHtml(catLabel)}">${escapeHtml(catLabel)}</span>
+                <span class="inv-card-stock ${stockCls}" title="Stock: ${escapeHtml(stockText)}"><i class="fa-solid fa-box"></i> ${escapeHtml(stockText)}${st.hasBatches ? ' <i class="fa-solid fa-layer-group" title="Batch/Lot tracked"></i>' : ''}</span>
+            </div>
+            <div class="inv-card-meter ${stockCls}"><span style="width:${meterPct.toFixed(0)}%"></span></div>
+        </div>
+        <div class="inv-card-body">
+            <h4 class="inv-card-name" title="${escapeHtml(tip)}">${escapeHtml(name)}</h4>
+            <div class="inv-card-row">
+                <div class="inv-card-price" title="${escapeHtml(priceText + productPriceSuffix(p, true))}">${priceText}<small>${productPriceSuffix(p)}</small></div>
+                <div class="inv-card-actions">
+                    <button type="button" data-act="edit" class="edit" title="Edit product" aria-label="Edit product"><i class="fa-solid fa-pen-to-square"></i></button>
+                    <button type="button" data-act="delete" class="delete" title="Delete product" aria-label="Delete product"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>
+        </div>
+    `;
+    card.querySelector('.inv-card-photo').appendChild(buildInventoryGridPhotoNode(p));
+    return card;
+}
+function bindInventoryGridEvents(out, pager) {
+    if (out && !out.dataset.bound) {
+        out.dataset.bound = '1';
+        out.addEventListener('click', (e) => {
+            const t = e.target;
+            if (!t || !t.closest) return;
+            if (t.closest('[data-inv-reset]')) { resetInventoryGridFilters(); return; }
+            if (t.closest('[data-inv-retry]')) { loadInventoryProductsTable(); return; }
+            const card = t.closest('.inv-card');
+            if (!card || !out.contains(card)) return;
+            const code = card.getAttribute('data-code');
+            if (!code) return;
+            // The click that follows a long press must not also open the product.
+            if (invLongPressFired) { invLongPressFired = false; e.preventDefault(); return; }
+            // Select mode (or Ctrl/Cmd + click on desktop): tapping a card selects it.
+            if (inventorySelectMode || e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                if (!inventorySelectMode) setInventorySelectMode(true);
+                toggleInventoryCardSelection(code);
+                return;
+            }
+            const actBtn = t.closest('[data-act]');
+            const act = actBtn ? actBtn.getAttribute('data-act') : 'view';
+            if (act === 'edit') openProductModal('UPDATE', code);
+            else if (act === 'delete') deleteProductTrigger(code);
+            else showProductDetails(code, 'inventory');
+        });
+        out.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const t = e.target;
+            if (!t || !t.classList || !t.classList.contains('inv-card')) return;
+            e.preventDefault();
+            const code = t.getAttribute('data-code');
+            if (!code) return;
+            if (inventorySelectMode) toggleInventoryCardSelection(code);
+            else showProductDetails(code, 'inventory');
+        });
+        // Press and hold a card (touch / pen) to start Select mode with that card picked.
+        const cancelLongPress = () => { if (invLongPressTimer) { clearTimeout(invLongPressTimer); invLongPressTimer = null; } };
+        out.addEventListener('pointerdown', (e) => {
+            invLongPressFired = false;
+            cancelLongPress();
+            if (e.pointerType === 'mouse' || inventorySelectMode) return;
+            const t = e.target;
+            const card = t && t.closest ? t.closest('.inv-card') : null;
+            if (!card || !out.contains(card) || t.closest('[data-act]')) return;
+            const code = card.getAttribute('data-code');
+            if (!code) return;
+            invLongPressStart = { x: e.clientX, y: e.clientY };
+            invLongPressTimer = setTimeout(() => {
+                invLongPressTimer = null;
+                invLongPressFired = true;
+                setInventorySelectMode(true);
+                toggleInventoryCardSelection(code, true);
+                try { if (navigator.vibrate) navigator.vibrate(15); } catch (err) {}
+            }, INV_LONG_PRESS_MS);
+        });
+        out.addEventListener('pointermove', (e) => {
+            if (!invLongPressTimer || !invLongPressStart) return;
+            if (Math.hypot(e.clientX - invLongPressStart.x, e.clientY - invLongPressStart.y) > 10) cancelLongPress();
+        });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(evt => out.addEventListener(evt, cancelLongPress));
+        out.addEventListener('contextmenu', (e) => {
+            if ((invLongPressFired || inventorySelectMode) && e.target && e.target.closest && e.target.closest('.inv-card')) e.preventDefault();
+        });
+    }
+    if (pager && !pager.dataset.bound) {
+        pager.dataset.bound = '1';
+        pager.addEventListener('click', (e) => {
+            const btn = e.target && e.target.closest ? e.target.closest('[data-pg]') : null;
+            if (!btn || btn.disabled) return;
+            setInventoryGridPage(btn.getAttribute('data-pg'));
+        });
+    }
+}
+function buildInventoryGridPagerHtml(page, pages) {
+    const btn = (target, inner, label, disabled, active) =>
+        `<button type="button" class="inv-pg-btn${active ? ' active' : ''}" data-pg="${target}" aria-label="${label}"${disabled ? ' disabled' : ''}${active ? ' aria-current="page"' : ''}>${inner}</button>`;
+    // Compact number window: 1 … (p-1) p (p+1) … last
+    const nums = [];
+    const shown = new Set([1, pages, page - 1, page, page + 1]);
+    let prev = 0;
+    for (let i = 1; i <= pages; i++) {
+        if (!shown.has(i)) continue;
+        if (i - prev > 1) nums.push('<span class="inv-pg-gap">…</span>');
+        nums.push(`<button type="button" class="inv-pg-btn inv-pg-num${i === page ? ' active' : ''}" data-pg="${i}" aria-label="Page ${i}"${i === page ? ' aria-current="page"' : ''}>${i}</button>`);
+        prev = i;
+    }
+    return btn(1, '<i class="fa-solid fa-angles-left"></i>', 'First page', page <= 1)
+        + btn(page - 1, '<i class="fa-solid fa-angle-left"></i>', 'Previous page', page <= 1)
+        + nums.join('')
+        + `<span class="inv-pg-info">Page <b>${page}</b> of ${pages}</span>`
+        + btn(page + 1, '<i class="fa-solid fa-angle-right"></i>', 'Next page', page >= pages)
+        + btn(pages, '<i class="fa-solid fa-angles-right"></i>', 'Last page', page >= pages);
+}
+// ---------------------------------------------------------------------------
+// Products grid: card size + Select mode (bulk actions)
+// ---------------------------------------------------------------------------
+function invSelKey(code) { return String(code == null ? '' : code).trim().toLowerCase(); }
+function applyInventoryGridSize() {
+    const out = document.getElementById('inventory-grid-output');
+    if (out && out.dataset.size !== inventoryGridSize) out.dataset.size = inventoryGridSize;
+    document.querySelectorAll('.inv-size-btn').forEach(btn => {
+        const on = btn.getAttribute('data-size') === inventoryGridSize;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+}
+function setInventoryGridSize(size) {
+    if (size !== 'S' && size !== 'M' && size !== 'L') return;
+    inventoryGridSize = size;
+    try { localStorage.setItem(INV_GRID_SIZE_KEY, size); } catch (e) {}
+    applyInventoryGridSize();
+}
+function getInventorySelectedProducts() {
+    const src = Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [];
+    return src.filter(p => p && inventorySelected.has(invSelKey(p.code)));
+}
+function updateInventorySelectBar() {
+    const bar = document.getElementById('inv-select-bar');
+    const wrap = document.getElementById('inventory-grid-wrap');
+    const btn = document.getElementById('inv-select-btn');
+    const n = inventorySelected.size;
+    if (wrap) wrap.classList.toggle('is-selecting', inventorySelectMode);
+    if (btn) {
+        btn.classList.toggle('active', inventorySelectMode);
+        btn.setAttribute('aria-pressed', inventorySelectMode ? 'true' : 'false');
+    }
+    if (!bar) return;
+    bar.hidden = !inventorySelectMode;
+    const cnt = document.getElementById('inv-select-count');
+    if (cnt) cnt.textContent = n === 0 ? 'Tap products to select' : `${n} selected`;
+    const allBtn = document.getElementById('inv-select-all-btn');
+    if (allBtn) {
+        const everything = inventoryGridListTotal > 0 && n >= inventoryGridListTotal;
+        allBtn.textContent = everything ? 'None' : `All (${inventoryGridListTotal})`;
+        allBtn.disabled = inventoryGridListTotal === 0;
+    }
+    bar.querySelectorAll('[data-sel-act]').forEach(b => { b.disabled = n === 0; });
+}
+function setInventorySelectMode(on) {
+    on = !!on;
+    inventorySelectMode = on;
+    if (!on) inventorySelected.clear();
+    const out = document.getElementById('inventory-grid-output');
+    if (out) {
+        out.classList.toggle('select-mode', on);
+        out.querySelectorAll('.inv-card').forEach(card => {
+            if (on) {
+                card.setAttribute('role', 'checkbox');
+                card.setAttribute('aria-checked', card.classList.contains('is-selected') ? 'true' : 'false');
+            } else {
+                card.setAttribute('role', 'button');
+                card.removeAttribute('aria-checked');
+                card.classList.remove('is-selected');
+            }
+        });
+    }
+    updateInventorySelectBar();
+}
+function toggleInventorySelectMode() { setInventorySelectMode(!inventorySelectMode); }
+function exitInventorySelectMode() { setInventorySelectMode(false); }
+function toggleInventoryCardSelection(code, force) {
+    const key = invSelKey(code);
+    if (!key) return;
+    const want = typeof force === 'boolean' ? force : !inventorySelected.has(key);
+    if (want) inventorySelected.add(key); else inventorySelected.delete(key);
+    const out = document.getElementById('inventory-grid-output');
+    const card = out ? out.querySelector(`.inv-card[data-code="${CSS.escape(String(code))}"]`) : null;
+    if (card) {
+        card.classList.toggle('is-selected', want);
+        if (inventorySelectMode) card.setAttribute('aria-checked', want ? 'true' : 'false');
+    }
+    updateInventorySelectBar();
+}
+// "All" selects everything the current search/filters match (all pages); "None" clears it.
+function toggleInventorySelectAll() {
+    const list = getInventoryGridList();
+    const everything = list.length > 0 && inventorySelected.size >= list.length;
+    inventorySelected = new Set(everything ? [] : list.map(p => invSelKey(p.code)));
+    const out = document.getElementById('inventory-grid-output');
+    if (out) {
+        out.querySelectorAll('.inv-card').forEach(card => {
+            const on = inventorySelected.has(invSelKey(card.getAttribute('data-code')));
+            card.classList.toggle('is-selected', on);
+            if (inventorySelectMode) card.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+    }
+    updateInventorySelectBar();
+}
+// Selection can only ever contain products the current search/filters still show.
+function pruneInventorySelection(list) {
+    if (!inventorySelected.size) return;
+    const visible = new Set(list.map(p => invSelKey(p.code)));
+    let changed = false;
+    inventorySelected.forEach(k => { if (!visible.has(k)) { inventorySelected.delete(k); changed = true; } });
+    if (changed) updateInventorySelectBar();
+}
+async function bulkDeleteInventorySelected() {
+    if (bulkDeleteBusy) return;
+    const picked = getInventorySelectedProducts();
+    if (!picked.length) { Swal.fire('Nothing selected', 'Tap the products you want to delete first.', 'info'); return; }
+    // Same safe flow as Products > Delete: type DELETE, password / Admin approval, backup CSV.
+    bulkDeleteMatches = picked.slice();
+    bulkDeleteSelected = new Set(picked.map(p => bdCodeKey(p.code)));
+    await submitBulkDelete();
+    if (!inventorySelected.size) exitInventorySelectMode();
+}
+async function bulkChangeInventoryCategory() {
+    const picked = getInventorySelectedProducts();
+    if (!picked.length) { Swal.fire('Nothing selected', 'Tap the products you want to move first.', 'info'); return; }
+    const count = picked.length;
+    const plural = count === 1 ? '' : 's';
+    const isAdmin = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin');
+    const canApplyDirectly = isAdmin || !!(currentPermissions && currentPermissions.products_direct_apply);
+    const cats = Array.from(new Set((Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [])
+        .map(p => (p && p.category) ? String(p.category) : '').filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const ask = await Swal.fire({
+        title: `Change category (${count})`,
+        html: `<div style="text-align:left;font-size:0.9rem;">` +
+            `<p style="margin:0 0 8px;">New category for the ${count} selected product${plural}:</p>` +
+            `<input id="inv-bulk-cat" class="swal2-input" style="margin:0;width:100%;box-sizing:border-box;" list="inv-bulk-cat-list" placeholder="Type or pick a category" autocomplete="off" maxlength="60" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">` +
+            `<datalist id="inv-bulk-cat-list">${cats.map(c => `<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>` +
+            (canApplyDirectly ? '' : `<p style="margin:10px 0 0;color:#64748b;">You do not have Direct Apply permission, so this will send ${count} update request${plural} to an Admin for approval.</p>`) +
+            `</div>`,
+        showCancelButton: true,
+        confirmButtonText: canApplyDirectly ? 'Apply' : 'Send requests',
+        focusConfirm: false,
+        preConfirm: () => {
+            const el = document.getElementById('inv-bulk-cat');
+            const v = el ? el.value.trim() : '';
+            if (!v) { Swal.showValidationMessage('Enter a category.'); return false; }
+            return v;
+        }
+    });
+    if (!ask.isConfirmed || !ask.value) return;
+    const newCategory = String(ask.value);
+
+    Swal.fire({
+        title: 'Updating…',
+        html: `<span id="inv-bulk-progress">0 / ${count}</span>`,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => { Swal.showLoading(); }
+    });
+    productCatalogMutationVersion++;
+    const applied = new Set();
+    let queued = 0;
+    let unchanged = 0;
+    const failed = [];
+    for (let i = 0; i < picked.length; i++) {
+        const prod = picked[i];
+        const progressEl = document.getElementById('inv-bulk-progress');
+        if (progressEl) progressEl.textContent = `${i + 1} / ${count}`;
+        if (String(prod.category || '') === newCategory) { unchanged++; continue; }
+        try {
+            const res = await authFetch(`${API_URL}/products/${encodeURIComponent(prod.code)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updatedData: { category: newCategory }, userRole: currentUser.role, username: currentUser.username })
+            });
+            const reply = await res.json().catch(() => ({}));
+            if (reply && reply.success) {
+                if (canApplyDirectly) applied.add(invSelKey(prod.code)); else queued++;
+            } else {
+                failed.push(`${prod.code}: ${(reply && reply.message) || 'Could not update.'}`);
+            }
+        } catch (e) {
+            failed.push(`${prod.code}: connection error`);
+        }
+    }
+    productCatalogMutationVersion++;
+    if (applied.size) {
+        const touch = (list) => { if (Array.isArray(list)) list.forEach(p => { if (p && applied.has(invSelKey(p.code))) p.category = newCategory; }); };
+        touch(cachedInventoryProducts);
+        touch(globalProducts);
+        renderInventoryProductsTable();
+    }
+    const lines = [];
+    if (applied.size) lines.push(`${applied.size} product${applied.size === 1 ? '' : 's'} moved to “${escapeHtml(newCategory)}”.`);
+    if (queued) lines.push(`${queued} update request${queued === 1 ? '' : 's'} sent for Admin approval.`);
+    if (unchanged) lines.push(`${unchanged} already in that category.`);
+    if (failed.length) lines.push(`<span style="color:#b91c1c;">${failed.length} failed:</span><br>` + failed.slice(0, 5).map(escapeHtml).join('<br>') + (failed.length > 5 ? `<br>…and ${failed.length - 5} more` : ''));
+    await Swal.fire({
+        title: failed.length ? (applied.size || queued ? 'Done, with errors' : 'Could not update') : 'Done',
+        html: `<div style="text-align:left;font-size:0.9rem;">${lines.join('<br>')}</div>`,
+        icon: failed.length ? (applied.size || queued ? 'warning' : 'error') : 'success'
+    });
+    if (applied.size || queued) { exitInventorySelectMode(); loadInventoryProductsTable(); }
+}
+function renderInventoryGrid() {
+    const out = document.getElementById('inventory-grid-output');
+    const summary = document.getElementById('inv-grid-summary');
+    const pager = document.getElementById('inv-grid-pager');
+    if (!out) return;
+    bindInventoryGridEvents(out, pager);
+    applyInventoryGridSize();
+    updateFilterIconStates();
+    const source = Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : [];
+    if (source.length === 0) {
+        // Nothing loaded yet: show Loading / Error / Empty instead of a blank area.
+        inventoryGridSignature = '';
+        inventorySelected.clear();
+        inventoryGridListTotal = 0;
+        updateInventorySelectBar();
+        let html;
+        if (inventoryLoadsInFlight > 0) {
+            html = '<i class="fa-solid fa-spinner fa-spin"></i><span>Loading products…</span>';
+        } else if (inventoryLoadFailed) {
+            html = '<i class="fa-solid fa-triangle-exclamation"></i><span>Could not load the products.</span><button type="button" class="inv-grid-empty-btn" data-inv-retry="1"><i class="fa-solid fa-rotate-right"></i> Retry</button>';
+        } else {
+            html = '<i class="fa-solid fa-box-open"></i><span>No products yet. Use “Add Product” to create your first one.</span>';
+        }
+        out.innerHTML = `<div class="inv-grid-empty">${html}</div>`;
+        if (summary) summary.textContent = '';
+        if (pager) { pager.innerHTML = ''; pager.style.display = 'none'; }
+        return;
+    }
+    syncInventoryGridCategoryOptions();
+    syncInventoryGridControls();
+    updateInventoryFilterIndicator();
+    const list = getInventoryGridList();
+    const total = list.length;
+    inventoryGridListTotal = total;
+    pruneInventorySelection(list);
+    updateInventorySelectBar();
+    const limit = inventoryGridLimit;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    inventoryGridPage = Math.min(Math.max(1, inventoryGridPage), pages);
+    const start = (inventoryGridPage - 1) * limit;
+    const slice = list.slice(start, start + limit);
+
+    // Skip the rebuild when nothing visible changed (the stock poll calls this every few seconds).
+    const signature = [total, source.length, inventoryGridPage, pages, limit].join('|') + '#' + slice.map(p => {
+        const st = getInventoryProductStatus(p);
+        return [p.code, p.name, p.category, p.price, p.stock, st.threshold, st.expiry, p.supplier, p.baseUnit,
+            p.image ? (p.imageVer || p.image.length) : (p._imgPending ? 'pending' : ''),
+            productHasDetails(p) ? 1 : 0, st.hasBatches ? 1 : 0].join('~');
+    }).join('\n');
+    if (signature === inventoryGridSignature && out.childElementCount > 0) return;
+    inventoryGridSignature = signature;
+
+    if (summary) {
+        const from = total === 0 ? 0 : start + 1;
+        const to = start + slice.length;
+        summary.textContent = total === source.length
+            ? `Showing ${from}–${to} of ${total} products`
+            : `Showing ${from}–${to} of ${total} matching products (${source.length} total)`;
+    }
+    if (total === 0) {
+        out.innerHTML = '<div class="inv-grid-empty"><i class="fa-solid fa-magnifying-glass"></i><span>No products match your search or filters.</span><button type="button" class="inv-grid-empty-btn" data-inv-reset="1"><i class="fa-solid fa-filter-circle-xmark"></i> Reset filters</button></div>';
+    } else {
+        const fragment = document.createDocumentFragment();
+        slice.forEach(p => {
+            try {
+                fragment.appendChild(buildInventoryGridCard(p));
+            } catch (cardError) {
+                console.error('Skipped a product in the Inventory grid due to a card render error:', p, cardError);
+            }
+        });
+        out.innerHTML = '';
+        out.appendChild(fragment);
+    }
+    if (pager) {
+        if (total === 0 || pages <= 1) {
+            pager.innerHTML = '';
+            pager.style.display = 'none';
+        } else {
+            pager.style.display = '';
+            pager.innerHTML = buildInventoryGridPagerHtml(inventoryGridPage, pages);
+        }
+    }
 }
 function openProductModal(mode, code ='') {
     document.getElementById('p-form-mode').value = mode;

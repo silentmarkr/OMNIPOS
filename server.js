@@ -23220,13 +23220,13 @@ registerMarketplace({
 // Self-Order Kiosk (OMNIKiosk app) — tingnan ang kiosk.js
 // Ang return value ({ checkPayable, markPaid }) ay ginagamit ng processTransaction (POS sale) para sa kiosk order na ini-scan sa Terminal.
 kioskApi = require('./kiosk')({ app, readData, writeData, readProductsNoImages, logAction, rateLimit, relayFetch, relayUrl: () => RELAY_URL, getInstallationId: () => { try { return getBirPassKeyIdentity().installationId; } catch (_e) { return null; } }, getKioskFeatureStatus });
-// Daily Owner Summary (read-only report) — tingnan ang daily-digest.js
+// Daily Owner Summary (read-only report) — see daily-digest.js
 require('./daily-digest')({
     app, readData, writeData, requirePermission, readRowsInIsoWindow, logAction,
-    // Email ng buod: gamit ang parehong OTP sender ng fraud alerts (Receipt Settings).
+    // Summary email: uses the same OTP sender as fraud alerts (Receipt Settings).
     sendMail: async (to, subject, text) => {
         const creds = getOtpMailCredentials();
-        if (!creds) throw new Error('Walang OTP sender email na naka-set sa Receipt Settings.');
+        if (!creds) throw new Error('No OTP sender email is set in Receipt Settings.');
         return sendMailSmart(creds.user, creds.pass, { from: `"OmniPOS Daily Summary" <${creds.user}>`, to, subject, text });
     }
 });
