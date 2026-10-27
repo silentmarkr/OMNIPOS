@@ -4307,13 +4307,36 @@ document.addEventListener("DOMContentLoaded", () => {
     const userForm = document.getElementById('user-schema-form');
     if(userForm) userForm.addEventListener('submit', handleUserFormSubmit);
     if (currentUser) {
-        showMainSystemInterface().catch(err => {
-            console.error('Unexpected error while restoring session after reload (showMainSystemInterface):', err);
-        });
+        restoreSessionOrShowLogin();
     } else {
         showAuthenticationInterface();
     }
 });
+// Startup session check: a saved user with a missing or no-longer-valid token (after an update, reinstall or server
+// restart) used to open the main screen anyway. Every call then returned 401, which left a broken sidebar / blank screen
+// instead of the login page. Now an invalid session goes straight to the login page.
+async function restoreSessionOrShowLogin() {
+    let valid = true;
+    const token = localStorage.getItem('omnipos_token');
+    if (!token) {
+        valid = false;
+    } else {
+        try {
+            const r = await window.fetch(`${API_URL}/users/self`, { headers: { 'Authorization': `Bearer ${token}` } });
+            if (r.status === 401) valid = false;
+        } catch (_e) { /* server not reachable yet: keep the session, the normal offline handling applies */ }
+    }
+    if (!valid) {
+        localStorage.removeItem('omnipos_user');
+        localStorage.removeItem('omnipos_token');
+        currentUser = null;
+        showAuthenticationInterface();
+        return;
+    }
+    showMainSystemInterface().catch(err => {
+        console.error('Unexpected error while restoring session after reload (showMainSystemInterface):', err);
+    });
+}
 async function guardShiftReportAccess(isAdminOrSupervisor) {
     const token = localStorage.getItem('omnipos_token');
     try {
