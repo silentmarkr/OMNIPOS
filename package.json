@@ -1,6 +1,6 @@
 {
   "name": "omnipos",
-  "version": "1.1.114",
+  "version": "1.1.115",
   "scripts": {
     "build:release": "node build-release.js",
     "verify:gmail": "node verify-gmail-connection.js"

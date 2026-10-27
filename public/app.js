@@ -421,6 +421,7 @@ async function runForcedPasswordChange(usernameHint, roleHint) {
                 }
             });
             if (result.isConfirmed && result.value === true) {
+                window.__pwLiftedToken = localStorage.getItem('omnipos_token') || '';
                 await Swal.fire({
                     icon: 'success',
                     title: 'Password updated',
@@ -455,7 +456,12 @@ async function runForcedPasswordChange(usernameHint, roleHint) {
                 try {
                     const skipRes = await authFetch(`${API_URL}/users/self/skip-password-change`, { method: 'POST' });
                     const skipData = await skipRes.json().catch(() => ({}));
-                    if (skipRes.ok && skipData.success) return 'skipped';
+                    if (skipRes.ok && skipData.success) {
+                        // The server lifted the lock for THIS session. Late 403s from requests that were already in flight
+                        // (slow phones) must not re-open the password form.
+                        window.__pwLiftedToken = localStorage.getItem('omnipos_token') || '';
+                        return 'skipped';
+                    }
                     if (skipData.code === 'SKIP_LIMIT_REACHED') {
                         allowSkip = false; // the next loop iteration rebuilds the dialog without the "Change it later" button
                         await Swal.fire({ icon: 'info', title: 'Password change required', text: skipData.message || 'You can no longer postpone this. Please set a new password.' });
@@ -509,7 +515,7 @@ async function authFetch(url, options = {}) {
             }
         }
     }
-    if (res.status === 403 && token && !window.__forcedPwChangeOpen && !url.includes('/users/self/change-password')) {
+    if (res.status === 403 && token && !window.__forcedPwChangeOpen && window.__pwLiftedToken !== token && !url.includes('/users/self/change-password')) {
         try {
             const pwData = await res.clone().json();
             if (pwData && pwData.code === 'PASSWORD_CHANGE_REQUIRED') {
