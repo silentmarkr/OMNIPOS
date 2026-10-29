@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OmniPOS Customer Display</title>
+<style>
+:root{
+  --bg:#f7f5f0; --surface:#fffdf8; --line:#d9d4c7; --text:#14213d; --text2:#5d5c55; --muted:#8a887f;
+  --accent:#14213d; --panel-bg:#14213d; --panel-text:#f7f5f0; --panel-line:rgba(247,245,240,.45);
+  --font-body:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --font-num:Georgia,'Times New Roman',serif;
+  --u:min(2.1vw,3.6vh);
+}
+html[data-theme="cyber"]{--dm-bg: #05070d;--dm-surface: #0b0f1a;--dm-surface-alt: #101625;--dm-border: #1f2a44;--dm-text-primary: #eafcff;--dm-text-secondary: #8ea3c9;--dm-text-muted: #5a6a8c;--dm-accent: #22e5ff;}
+html[data-theme="dark"]{--dm-bg: #050b1f;--dm-surface: #0a1432;--dm-surface-alt: #101d45;--dm-border: #1c3068;--dm-text-primary: #f3f7ff;--dm-text-secondary: #9fb6e6;--dm-text-muted: #6a84b8;--dm-accent: #3d7bff;}
+html[data-theme="emerald"]{--dm-bg: #071510;--dm-surface: #0d2119;--dm-surface-alt: #122a20;--dm-border: #1e3d2f;--dm-text-primary: #eafff4;--dm-text-secondary: #8fc4a8;--dm-text-muted: #5f8c73;--dm-accent: #22c55e;}
+html[data-theme="galaxyambient"]{--dm-bg: #0a0a0c;--dm-surface: rgba(24, 24, 28, 0.86);--dm-surface-alt: rgba(34, 34, 40, 0.92);--dm-border: rgba(255, 255, 255, 0.08);--dm-text-primary: #f3f3f5;--dm-text-secondary: #adadb8;--dm-text-muted: #75757f;--dm-accent: #1a73e8;}
+html[data-theme="liquidglass"]{--dm-bg: #0b0f1a;--dm-surface: rgba(30, 38, 58, 0.55);--dm-surface-alt: rgba(42, 52, 78, 0.62);--dm-border: rgba(255, 255, 255, 0.14);--dm-text-primary: #f3f6ff;--dm-text-secondary: #b7c2e0;--dm-text-muted: #7d89ac;--dm-accent: #0a84ff;}
+html[data-theme="mintfrost"]{--dm-bg: #071815;--dm-surface: #0d211d;--dm-surface-alt: #122a24;--dm-border: #1e3a33;--dm-text-primary: #eafff8;--dm-text-secondary: #8fc9b8;--dm-text-muted: #5f8c7c;--dm-accent: #2dd4bf;}
+html[data-theme="noir"]{--dm-bg: #120d09;--dm-surface: #1c140d;--dm-surface-alt: #241a11;--dm-border: #3a2a1a;--dm-text-primary: #f7ecdc;--dm-text-secondary: #c7a985;--dm-text-muted: #8a725a;--dm-accent: #d4a256;}
+html[data-theme="ocean"]{--dm-bg: #05141c;--dm-surface: #0b232f;--dm-surface-alt: #0f2c3a;--dm-border: #1c3d4c;--dm-text-primary: #eafcff;--dm-text-secondary: #8fb8c4;--dm-text-muted: #5f818c;--dm-accent: #22d3ee;}
+html[data-theme="rosegold"]{--dm-bg: #170a12;--dm-surface: #24101c;--dm-surface-alt: #2c1422;--dm-border: #402038;--dm-text-primary: #fff0f6;--dm-text-secondary: #d192b0;--dm-text-muted: #916078;--dm-accent: #ec4899;}
+html[data-theme="sunset"]{--dm-bg: #180d05;--dm-surface: #241407;--dm-surface-alt: #2c1a0b;--dm-border: #40260f;--dm-text-primary: #fff6ea;--dm-text-secondary: #c9a279;--dm-text-muted: #8c6f52;--dm-accent: #f59e0b;}
+html[data-theme]{
+  --bg:var(--dm-bg); --surface:var(--dm-surface); --line:var(--dm-border); --text:var(--dm-text-primary);
+  --text2:var(--dm-text-secondary); --muted:var(--dm-text-muted); --accent:var(--dm-accent);
+  --panel-bg:var(--dm-surface-alt); --panel-text:var(--dm-text-primary); --panel-line:var(--dm-accent);
+}
+html[data-theme="noir"]{--font-num:'Playfair Display',Georgia,serif}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font-body);-webkit-font-smoothing:antialiased;cursor:none}
+.screen{position:absolute;inset:0;display:none}
+.screen.on{display:flex}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.cap{font-size:calc(var(--u)*.62);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+/* idle */
+#idle{flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:calc(var(--u)*.8);padding:calc(var(--u)*2)}
+#idle .store{font-family:var(--font-num);font-size:calc(var(--u)*3.4);line-height:1.1}
+#idle .rule{width:calc(var(--u)*6);height:1px;background:var(--accent)}
+#idle .hello{font-size:calc(var(--u)*1.1);color:var(--text2)}
+#idle .clock{font-size:calc(var(--u)*.9);color:var(--muted)}
+#show{display:flex;gap:calc(var(--u)*1.2);margin-top:calc(var(--u)*1.2);max-width:92%;overflow:hidden;justify-content:center}
+#show .p{border:1px solid var(--line);background:var(--surface);padding:calc(var(--u)*.6);width:calc(var(--u)*8);text-align:center;font-size:calc(var(--u)*.7)}
+#show .p img{width:100%;height:calc(var(--u)*5);object-fit:cover;display:block;margin-bottom:calc(var(--u)*.4)}
+#show .p b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#show .p span{color:var(--text2)}
+
+/* shared cart pieces */
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:calc(var(--u)*.8);padding:calc(var(--u)*.42) 0;border-bottom:1px dotted var(--line);font-size:calc(var(--u)*1.05)}
+.row .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .q{color:var(--text2);margin-right:.5em}
+.row.new{animation:pop .5s ease-out}
+@keyframes pop{from{background:var(--panel-bg);color:var(--panel-text)}to{background:transparent}}
+.compact .row{padding:calc(var(--u)*.2) 0;font-size:calc(var(--u)*.8)}
+.list{flex:1;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end}
+.list-in{overflow-y:auto;scrollbar-width:none}
+.list-in::-webkit-scrollbar{display:none}
+.kv{display:flex;justify-content:space-between;font-size:calc(var(--u)*.95)}
+.big{font-size:calc(var(--u)*4.4);line-height:1.05}
+
+/* A ledger */
+.ledger{width:100%;display:grid;grid-template-columns:1.5fr 1fr}
+.ledger .l{padding:calc(var(--u)*1.6);display:flex;flex-direction:column;min-height:0}
+.ledger .hd{display:flex;justify-content:space-between;border-bottom:1px solid var(--accent);padding-bottom:calc(var(--u)*.5)}
+.ledger .r{background:var(--panel-bg);color:var(--panel-text);padding:calc(var(--u)*1.8);display:flex;flex-direction:column;justify-content:flex-end;gap:calc(var(--u)*.4)}
+.ledger .r .tot{border-top:1px solid var(--panel-line);padding-top:calc(var(--u)*.7);margin-top:calc(var(--u)*.6)}
+.ledger .r .cap{color:inherit;opacity:.8}
+
+/* B receipt */
+.receipt{width:100%;display:grid;grid-template-columns:1fr 1.7fr}
+.receipt .l{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-right:1px solid var(--line);padding:calc(var(--u)*1.6);gap:calc(var(--u)*.8)}
+.receipt .l .s{font-size:calc(var(--u)*.8);letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
+.receipt .l .g{font-size:calc(var(--u)*1.05);color:var(--text2);line-height:1.6}
+.receipt .r{background:var(--surface);padding:calc(var(--u)*1.6);display:flex;flex-direction:column;min-height:0}
+.receipt .t{border-top:1px solid var(--accent);padding-top:calc(var(--u)*.7);margin-top:calc(var(--u)*.6);display:flex;justify-content:space-between;align-items:baseline}
+.receipt .t .big{font-size:calc(var(--u)*3.4)}
+
+/* C hero */
+.hero{width:100%;flex-direction:column}
+.hero .top{display:flex;justify-content:space-between;align-items:flex-end;padding:calc(var(--u)*1.6) calc(var(--u)*2);border-bottom:1px solid var(--line)}
+.hero .top .big{font-size:calc(var(--u)*5.6);font-family:var(--font-body);font-weight:500}
+.hero .top .meta{text-align:right;color:var(--text2);font-size:calc(var(--u)*.9);line-height:1.6}
+.hero .body{flex:1;padding:calc(var(--u)*1) calc(var(--u)*2);display:flex;flex-direction:column;min-height:0}
+
+/* D spotlight */
+.spot{width:100%;flex-direction:column}
+.spot .mid{flex:1;display:grid;grid-template-columns:1.2fr 1fr;min-height:0}
+.spot .a{padding:calc(var(--u)*2);display:flex;flex-direction:column;justify-content:center;border-right:1px solid var(--line)}
+.spot .a .nm{font-size:calc(var(--u)*2.6);line-height:1.15;margin-top:calc(var(--u)*.5)}
+.spot .a .sub{color:var(--text2);font-size:calc(var(--u)*1.1);margin-top:calc(var(--u)*.5)}
+.spot .b{padding:calc(var(--u)*1.4);display:flex;flex-direction:column;min-height:0}
+.spot .b .row{font-size:calc(var(--u)*.85);color:var(--text2)}
+.spot .bar{background:var(--panel-bg);color:var(--panel-text);border-top:2px solid var(--accent);padding:calc(var(--u)*.9) calc(var(--u)*2);display:flex;justify-content:space-between;align-items:baseline}
+.spot .bar .big{font-size:calc(var(--u)*3.6)}
+
+/* portrait */
+@media (max-aspect-ratio:1/1){
+  .ledger,.receipt{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  .receipt{grid-template-rows:auto 1fr}
+  .receipt .l{border-right:0;border-bottom:1px solid var(--line);padding:calc(var(--u)*1)}
+  .spot .mid{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .spot .a{border-right:0;border-bottom:1px solid var(--line)}
+  :root{--u:min(3.6vw,2.4vh)}
+}
+
+/* ewallet / paid */
+#pay,#paid{flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:calc(var(--u)*.8);padding:calc(var(--u)*2)}
+#pay img{width:min(46vh,70vw);height:min(46vh,70vw);background:#fff;padding:calc(var(--u)*.8);border:1px solid var(--line)}
+#pay .amt,#paid .amt{font-size:calc(var(--u)*3.2)}
+#paid .ty{font-family:var(--font-num);font-size:calc(var(--u)*3.4)}
+#paid .sub{color:var(--text2);font-size:calc(var(--u)*1.05);line-height:1.7}
+#paid .tick{width:calc(var(--u)*4);height:calc(var(--u)*4);border:1px solid var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:calc(var(--u)*2);color:var(--accent)}
+
+/* status pill */
+#status{position:absolute;left:calc(var(--u)*.8);bottom:calc(var(--u)*.6);font-size:calc(var(--u)*.6);color:var(--muted);background:var(--surface);border:1px solid var(--line);padding:.25em .8em;display:none}
+#status.on{display:block}
+</style>
+</head>
+<body>
+<div id="idle" class="screen">
+  <div class="cap" id="idleCap">Welcome</div>
+  <div class="store" id="idleStore">OmniPOS</div>
+  <div class="rule"></div>
+  <div class="hello">Welcome po. Salamat sa pagtangkilik.</div>
+  <div class="clock num" id="clock"></div>
+  <div id="show"></div>
+</div>
+<div id="cart" class="screen"></div>
+<div id="pay" class="screen"></div>
+<div id="paid" class="screen"></div>
+<div id="status"></div>
+
+<script>
+(function () {
+  var THEME_IDS = ["cyber", "dark", "emerald", "galaxyambient", "liquidglass", "mintfrost", "noir", "ocean", "rosegold", "sunset"];
+  var LAYOUTS = ['ledger', 'receipt', 'hero', 'spotlight'];
+  var q = new URLSearchParams(location.search);
+  var state = { layout: 'ledger', compact: 8, store: 'OmniPOS', cart: null, prevKeys: {}, idleTimer: null };
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var money = function (n) { return '\u20B1' + (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  var plain = function (n) { return (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  var qty = function (n) { return String(Math.round((Number(n) || 0) * 1000) / 1000); };
+  var lineTotal = function (i) { return (Number(i.quantity) || 0) * (Number(i.price) || 0) - (Number(i.itemDiscount) || 0); };
+
+  function setTheme(id) {
+    var root = document.documentElement;
+    if (id && THEME_IDS.indexOf(id) >= 0) root.setAttribute('data-theme', id); else root.removeAttribute('data-theme');
+  }
+  function show(name) {
+    ['idle', 'cart', 'pay', 'paid'].forEach(function (s) { $(s).classList.toggle('on', s === name); });
+  }
+  function status(text) { var el = $('status'); el.textContent = text || ''; el.classList.toggle('on', !!text); }
+
+  function rows(items, lastKey) {
+    return items.map(function (i, idx) {
+      var key = (i.code || i.name) + '|' + i.quantity;
+      var isNew = lastKey && key === lastKey && idx === items.length - 1 ? ' new' : '';
+      return '<div class="row' + isNew + '"><span class="n"><span class="q">' + esc(qty(i.quantity)) + ' \u00D7</span>' + esc(i.name) + '</span><span class="num">' + plain(lineTotal(i)) + '</span></div>';
+    }).join('');
+  }
+  function listBox(items, lastKey) {
+    return '<div class="list"><div class="list-in" id="scroller">' + rows(items, lastKey) + '</div></div>';
+  }
+
+  function renderCart() {
+    var c = state.cart;
+    if (!c || !c.items || !c.items.length) { showIdle(); return; }
+    var items = c.items, last = items[items.length - 1];
+    var lastKey = (last.code || last.name) + '|' + last.quantity;
+    var changed = lastKey !== state.lastKey; state.lastKey = changed ? lastKey : state.lastKey;
+    var count = items.reduce(function (a, i) { return a + (Number(i.quantity) || 0); }, 0);
+    var el = $('cart'), L = state.layout, html = '';
+    var disc = Number(c.discount) || 0;
+    var compact = items.length > state.compact ? ' compact' : '';
+    if (L === 'receipt') {
+      html = '<div class="receipt' + compact + '"><div class="l"><div class="s">' + esc(state.store) + '</div><div class="g">Welcome po.<br>Salamat sa pagtangkilik.</div></div>' +
+        '<div class="r">' + listBox(items, changed ? lastKey : '') +
+        (disc ? '<div class="kv"><span>Discount</span><span class="num">-' + plain(disc) + '</span></div>' : '') +
+        '<div class="t"><span class="cap" style="color:var(--accent)">Total</span><span class="big num">' + money(c.total) + '</span></div></div></div>';
+      el.innerHTML = html; mark(el, 'receipt');
+    } else if (L === 'hero') {
+      html = '<div class="hero' + compact + '"><div class="top"><div><div class="cap">Amount due</div><div class="big num">' + money(c.total) + '</div></div>' +
+        '<div class="meta">' + esc(qty(count)) + ' item' + (count === 1 ? '' : 's') + (disc ? '<br>Discount -' + plain(disc) : '') + '</div></div>' +
+        '<div class="body">' + listBox(items, changed ? lastKey : '') + '</div></div>';
+      el.innerHTML = html; mark(el, 'hero');
+    } else if (L === 'spotlight') {
+      html = '<div class="spot' + compact + '"><div class="mid"><div class="a"><div class="cap">Just added</div><div class="nm">' + esc(last.name) + '</div>' +
+        '<div class="sub num">' + esc(qty(last.quantity)) + ' \u00D7 ' + plain(last.price) + '</div></div><div class="b">' + listBox(items, changed ? lastKey : '') + '</div></div>' +
+        '<div class="bar"><span class="cap" style="color:inherit">Total' + (disc ? ' \u00B7 disc. -' + plain(disc) : '') + '</span><span class="big num">' + money(c.total) + '</span></div></div>';
+      el.innerHTML = html; mark(el, 'spot');
+    } else {
+      html = '<div class="ledger' + compact + '"><div class="l"><div class="hd"><span class="cap">' + esc(state.store) + '</span><span class="cap">' + esc(qty(count)) + ' item' + (count === 1 ? '' : 's') + '</span></div>' +
+        listBox(items, changed ? lastKey : '') + '</div><div class="r"><div class="kv"><span>Subtotal</span><span class="num">' + plain(c.subtotal) + '</span></div>' +
+        '<div class="kv"><span>Discount</span><span class="num">' + (disc ? '-' + plain(disc) : '0.00') + '</span></div>' +
+        '<div class="tot"><div class="cap">Total</div><div class="big num">' + money(c.total) + '</div></div></div></div>';
+      el.innerHTML = html; mark(el, 'ledger');
+    }
+    show('cart');
+    var sc = $('scroller'); if (sc) sc.scrollTop = sc.scrollHeight;
+  }
+  function mark(el, cls) { /* layout wrapper already carries its class */ }
+
+  function showIdle() {
+    $('idleStore').textContent = state.store;
+    show('idle');
+  }
+  function renderShowcase(list) {
+    var box = $('show');
+    if (!list || !list.length) { box.innerHTML = ''; return; }
+    box.innerHTML = list.slice(0, 4).map(function (p) {
+      return '<div class="p">' + (p.image ? '<img alt="" src="' + esc(p.image) + '">' : '') + '<b>' + esc(p.name) + '</b><span class="num">' + money(p.price) + '</span></div>';
+    }).join('');
+  }
+  function renderPay(d) {
+    $('pay').innerHTML = '<div class="cap">' + esc(d.method || 'E-wallet') + '</div>' +
+      (d.qrImage ? '<img alt="QR" src="' + esc(d.qrImage) + '">' : '') +
+      '<div class="cap">Scan to pay</div><div class="amt num">' + money(d.amount) + '</div>';
+    show('pay');
+  }
+  function renderPaid(d) {
+    var pts = d.loyaltyPointsEarned ? '<br>+' + esc(d.loyaltyPointsEarned) + ' points earned' + (d.loyaltyPointsBalance != null ? ' \u00B7 balance ' + esc(d.loyaltyPointsBalance) : '') : '';
+    $('paid').innerHTML = '<div class="tick">\u2713</div><div class="ty">Salamat po' + (d.customerName ? ', ' + esc(d.customerName) : '') + '</div>' +
+      '<div class="amt num">' + money(d.total) + '</div><div class="sub">Payment received' + (d.reference ? '<br>Ref. ' + esc(d.reference) : '') + pts + '</div>';
+    show('paid');
+    clearTimeout(state.idleTimer);
+    state.idleTimer = setTimeout(function () { state.cart = null; showIdle(); }, 8000);
+  }
+
+  function onMsg(m) {
+    var d = m.data || {};
+    if (d.storeName) state.store = d.storeName;
+    if (d.compactThreshold) state.compact = d.compactThreshold;
+    if (d.theme !== undefined) setTheme(d.theme);
+    clearTimeout(state.idleTimer);
+    if (m.type === 'cart') { state.cart = d; renderCart(); }
+    else if (m.type === 'ewallet') renderPay(d);
+    else if (m.type === 'paid') renderPaid(d);
+    else if (m.type === 'idle-content') { renderShowcase(d.showcase); if (!state.cart || !state.cart.items || !state.cart.items.length) showIdle(); }
+  }
+  function onConfig(c) {
+    if (LAYOUTS.indexOf(c.layout) >= 0) state.layout = c.layout;
+    if (c.compactThreshold) state.compact = c.compactThreshold;
+    if (c.theme !== undefined) setTheme(c.theme);
+    if ($('cart').classList.contains('on')) renderCart();
+  }
+
+  function connect() {
+    var base = q.get('server') || location.origin;
+    var url = base + '/api/customer-display/stream?terminal=' + encodeURIComponent(q.get('terminal') || 'any') + '&code=' + encodeURIComponent(q.get('code') || '');
+    status('Connecting\u2026');
+    var es = new EventSource(url);
+    es.onopen = function () { status(''); };
+    es.addEventListener('config', function (e) { try { onConfig(JSON.parse(e.data)); } catch (_e) {} });
+    es.addEventListener('msg', function (e) { try { onMsg(JSON.parse(e.data)); } catch (_e) {} });
+    es.onerror = function () {
+      status('Reconnecting\u2026');
+      if (es.readyState === 2) {
+        es.close();
+        fetch(url).then(function (r) { return r.status === 401 || r.status === 403 ? r.json().catch(function () { return {}; }) : null; })
+          .then(function (j) { if (j && j.message) status(j.message); }).catch(function () {});
+        setTimeout(connect, 5000);
+      }
+    };
+  }
+
+  function tick() { $('clock').textContent = new Date().toLocaleString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+  setInterval(tick, 15000); tick();
+
+  var taps = 0, tapTimer = null;
+  document.addEventListener('click', function (e) {
+    if (e.clientX > 90 || e.clientY > 90) return;
+    taps++; clearTimeout(tapTimer); tapTimer = setTimeout(function () { taps = 0; }, 2500);
+    if (taps >= 5 && window.OmniDisplayNative) window.OmniDisplayNative.openSetup();
+  });
+
+  var demo = q.get('demo');
+  if (demo) {
+    setTheme(q.get('theme') || '');
+    state.layout = LAYOUTS.indexOf(demo) >= 0 ? demo : 'ledger';
+    state.store = 'Frozen Haven';
+    state.cart = { subtotal: 1020, discount: 50, total: 970, items: [
+      { code: 'A1', name: 'Hotdog Jumbo 1kg', quantity: 2, price: 230 },
+      { code: 'A2', name: 'Chicken Nuggets 500g', quantity: 1, price: 245 },
+      { code: 'A3', name: 'Siomai 24pcs', quantity: 1, price: 180 },
+      { code: 'A4', name: 'Longganisa 500g', quantity: 1, price: 135 } ] };
+    renderCart();
+  } else {
+    showIdle();
+    connect();
+  }
+})();
+</script>
+</body>
+</html>

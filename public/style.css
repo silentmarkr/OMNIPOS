@@ -9048,6 +9048,137 @@ body.dark-mode .faq-retry-ai-btn:hover, .dark .faq-retry-ai-btn:hover { backgrou
 body.dark-mode .faq-ai-fallback-notice, .dark .faq-ai-fallback-notice {
   background: rgba(245, 158, 11, 0.16); color: #fbbf24;
 }
+
+/* Walang dobleng frame: ang card na ang bumubuo ng itsura ng bubble. */
+.faq-chat-assistant .faq-chat-bubble.faq-chat-bubble-limit,
+body.dark-mode .faq-chat-assistant .faq-chat-bubble.faq-chat-bubble-limit, .dark .faq-chat-assistant .faq-chat-bubble.faq-chat-bubble-limit {
+  background: transparent; border-color: transparent; padding: 0; box-shadow: none;
+}
+/* ===== Omni AI limit card: lumalabas kapag ubos na ang daily neurons (o buwanang credits) ===== */
+.faq-limit-card {
+  --lc-a: #f59e0b; --lc-b: #ef4444;
+  --lc-glow: rgba(245, 158, 11, 0.20); --lc-shadow: rgba(239, 68, 68, 0.30);
+  --lc-ink: #0f172a; --lc-mute: #64748b; --lc-line: rgba(15, 23, 42, 0.09); --lc-tile: rgba(15, 23, 42, 0.04);
+  position: relative; overflow: hidden; isolation: isolate;
+  padding: 16px 16px 14px; border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  border: 1px solid var(--lc-line);
+  box-shadow: 0 12px 28px -14px var(--lc-shadow), 0 2px 6px rgba(15, 23, 42, 0.06);
+  color: var(--lc-ink); text-align: left;
+}
+.faq-limit-card.is-monthly {
+  --lc-a: #fb7185; --lc-b: #be123c;
+  --lc-glow: rgba(244, 63, 94, 0.18); --lc-shadow: rgba(190, 18, 60, 0.28);
+}
+.faq-limit-card::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; z-index: 1;
+  background: linear-gradient(90deg, var(--lc-a), var(--lc-b));
+}
+.faq-limit-card::after {
+  content: ''; position: absolute; right: -80px; top: -110px; width: 240px; height: 240px; z-index: -1;
+  background: radial-gradient(closest-side, var(--lc-glow), rgba(255, 255, 255, 0)); pointer-events: none;
+}
+.faq-limit-head { display: flex; align-items: center; gap: 12px; }
+.faq-limit-icon {
+  position: relative; flex: 0 0 auto; width: 42px; height: 42px; border-radius: 13px;
+  display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.05rem;
+  background: linear-gradient(135deg, var(--lc-a), var(--lc-b));
+  box-shadow: 0 8px 16px -6px var(--lc-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.faq-limit-icon::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 16px;
+  border: 2px solid var(--lc-a); opacity: 0; animation: faqLimitPulse 2.6s ease-out infinite;
+}
+@keyframes faqLimitPulse { 0% { transform: scale(0.92); opacity: 0.55; } 70%, 100% { transform: scale(1.14); opacity: 0; } }
+.faq-limit-title { flex: 1 1 auto; min-width: 0; font-size: 1rem; font-weight: 800; line-height: 1.25; letter-spacing: -0.01em; color: var(--lc-ink); }
+.faq-limit-sub { margin-top: 10px; font-size: 0.8rem; line-height: 1.5; color: var(--lc-mute); }
+.faq-limit-badge {
+  flex: 0 0 auto; padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 800;
+  color: #b91c1c; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.28);
+}
+.faq-limit-meter {
+  position: relative; height: 10px; margin: 12px 0 12px; border-radius: 999px; overflow: hidden;
+  background: rgba(15, 23, 42, 0.08); box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+.faq-limit-meter > span {
+  display: block; height: 100%; border-radius: inherit;
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0 8px, rgba(255, 255, 255, 0) 8px 16px),
+    linear-gradient(90deg, var(--lc-a), var(--lc-b));
+  background-size: 22.6px 22.6px, 100% 100%; animation: faqLimitStripe 1.4s linear infinite;
+}
+@keyframes faqLimitStripe { to { background-position: 22.6px 0, 0 0; } }
+.faq-limit-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.faq-limit-stat {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 9px 11px; border-radius: 12px;
+  background: var(--lc-tile); border: 1px solid var(--lc-line);
+}
+.faq-limit-k { font-size: 0.72rem; font-weight: 600; line-height: 1.25; color: var(--lc-mute); }
+.faq-limit-v { font-size: 1.05rem; font-weight: 800; line-height: 1.2; color: var(--lc-ink); font-variant-numeric: tabular-nums; }
+.faq-limit-v b { font-weight: 800; }
+.faq-limit-stat.is-reset {
+  grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px;
+  background: rgba(37, 99, 235, 0.07); border-color: rgba(37, 99, 235, 0.22);
+}
+.faq-limit-stat.is-reset .faq-limit-v { font-size: 1.2rem; letter-spacing: 0.02em; text-align: right; }
+.faq-limit-stat.is-reset .faq-limit-v b:not(.faq-limit-clock) { font-size: 0.95rem; letter-spacing: 0; }
+.faq-limit-stat.is-reset .faq-limit-v { color: var(--primary-blue, #2563eb); }
+.faq-limit-clock { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.faq-limit-ready {
+  display: none; margin-top: 10px; padding: 9px 12px; border-radius: 12px; font-size: 0.8rem; font-weight: 700;
+  color: #047857; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.faq-limit-card.is-ready .faq-limit-ready { display: block; }
+.faq-limit-card.is-ready .faq-limit-badge { color: #047857; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.3); }
+.faq-limit-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.faq-limit-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 42px; padding: 9px 12px; border-radius: 12px; cursor: pointer;
+  font: inherit; font-size: 0.82rem; font-weight: 700; line-height: 1.2; text-align: center;
+  border: 1px solid transparent; transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.faq-limit-btn > span { min-width: 0; }
+.faq-limit-btn:active { transform: translateY(1px) scale(0.99); }
+.faq-limit-btn em { font-style: normal; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); }
+.faq-limit-btn.is-primary {
+  flex: 1 1 100%; flex-wrap: wrap; row-gap: 4px; color: #fff; background: linear-gradient(135deg, var(--primary-blue, #2563eb), #4f46e5);
+  box-shadow: 0 10px 20px -10px rgba(37, 99, 235, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.faq-limit-btn.is-primary:hover { box-shadow: 0 12px 24px -10px rgba(37, 99, 235, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.faq-limit-btn.is-secondary {
+  flex: 1 1 150px; min-width: 0; color: var(--primary-blue, #2563eb); background: rgba(37, 99, 235, 0.07); border-color: rgba(37, 99, 235, 0.3);
+}
+.faq-limit-btn.is-secondary:hover { background: rgba(37, 99, 235, 0.14); }
+.faq-limit-btn.is-ghost { flex: 1 1 150px; min-width: 0; color: var(--lc-mute); background: transparent; border-color: var(--lc-line); }
+.faq-limit-btn.is-ghost:hover { color: var(--lc-ink); background: var(--lc-tile); }
+.faq-limit-foot {
+  display: flex; align-items: center; gap: 7px; margin-top: 12px; padding-top: 10px;
+  border-top: 1px dashed var(--lc-line); font-size: 0.74rem; color: var(--lc-mute);
+}
+.faq-limit-foot i { color: #10b981; }
+.faq-limit-foot b { color: var(--lc-ink); font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) {
+  .faq-limit-card { padding: 14px 13px 12px; }
+  .faq-limit-badge { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .faq-limit-icon::after, .faq-limit-meter > span { animation: none; }
+}
+body.dark-mode .faq-limit-card, .dark .faq-limit-card {
+  --lc-ink: #f1f5f9; --lc-mute: #94a3b8; --lc-line: rgba(148, 163, 184, 0.18); --lc-tile: rgba(148, 163, 184, 0.08);
+  --lc-glow: rgba(245, 158, 11, 0.16); --lc-shadow: rgba(0, 0, 0, 0.55);
+  background: linear-gradient(180deg, #1e293b 0%, #162032 100%);
+}
+body.dark-mode .faq-limit-card.is-monthly, .dark .faq-limit-card.is-monthly { --lc-glow: rgba(244, 63, 94, 0.16); }
+body.dark-mode .faq-limit-card::after, .dark .faq-limit-card::after { background: radial-gradient(closest-side, var(--lc-glow), rgba(30, 41, 59, 0)); }
+body.dark-mode .faq-limit-badge, .dark .faq-limit-badge { color: #fca5a5; background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.35); }
+body.dark-mode .faq-limit-meter, .dark .faq-limit-meter { background: rgba(148, 163, 184, 0.16); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4); }
+body.dark-mode .faq-limit-stat.is-reset, .dark .faq-limit-stat.is-reset { background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.32); }
+body.dark-mode .faq-limit-stat.is-reset .faq-limit-v, .dark .faq-limit-stat.is-reset .faq-limit-v { color: #93c5fd; }
+body.dark-mode .faq-limit-btn.is-secondary, .dark .faq-limit-btn.is-secondary { color: #93c5fd; background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.35); }
+body.dark-mode .faq-limit-btn.is-secondary:hover, .dark .faq-limit-btn.is-secondary:hover { background: rgba(96, 165, 250, 0.2); }
+body.dark-mode .faq-limit-ready, .dark .faq-limit-ready { color: #6ee7b7; background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.35); }
 .faq-chat-actions {
   display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
   margin-top: 12px; padding-top: 10px;
@@ -18136,3 +18267,27 @@ body.dark-mode .inv-pg-info, body.dark-mode .inv-pg-gap { color: var(--dm-text-s
     .inv-pg-num, .inv-pg-gap { display: none; }
     .inv-pg-info { display: inline-flex; }
 }
+
+/* ===== Products > Grid (phone/tablet): product cards lang ang naiiscroll; nakapirmi ang header, search at "Showing" row ===== */
+.inv-grid-scroll { min-width: 0; }
+#view-products.inv-grid-mode .inv-grid-scroll {
+    overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain; padding: 4px 2px 14px; box-sizing: border-box;
+}
+@media (max-width: 420px) { .inv-select-count .inv-sel-word { display: none; } .inv-select-count { text-align: center; font-size: 0.95rem; } }
+/* Profit margin chip sa product card (cost vs price). */
+.inv-card-margin {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; vertical-align: middle;
+  font-style: normal; font-size: 0.62rem; font-weight: 800; line-height: 1.5;
+  color: #047857; background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.32);
+}
+.inv-card-margin.thin { color: #b45309; background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.36); }
+.inv-card-margin.neg { color: #b91c1c; background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.36); }
+body.dark-mode .inv-card-margin, .dark .inv-card-margin { color: #6ee7b7; }
+body.dark-mode .inv-card-margin.thin, .dark .inv-card-margin.thin { color: #fcd34d; }
+body.dark-mode .inv-card-margin.neg, .dark .inv-card-margin.neg { color: #fca5a5; }
+.inv-grid[data-size="S"] .inv-card-margin, #inventory-grid-output[data-size="S"] .inv-card-margin { display: none; }
+/* Naka-lock ang page scroll sa Products > Grid (phone/tablet); ang #inv-grid-scroll lang ang gumagalaw. */
+html.inv-grid-lock, body.inv-grid-lock { overflow: hidden !important; overscroll-behavior: none; }
+#view-products.inv-grid-mode .inv-grid-wrap.is-selecting { padding-bottom: 0; }
+#view-products.inv-grid-mode .inv-grid-wrap.is-selecting .inv-grid-scroll { padding-bottom: 84px; }

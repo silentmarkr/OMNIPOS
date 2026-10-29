@@ -14231,9 +14231,38 @@ function updateCartTotals() {
         total
     });
 }
+// OMNI-CDISPLAY: send display events to the Android customer display via the server hub.
+function pushCustomerDisplayToDevice(type, payload) {
+    const mode = advancedSettingsCache && advancedSettingsCache.customerDisplayMode;
+    if (mode !== 'device' && mode !== 'both') return;
+    const theme = document.body.getAttribute('data-theme') || document.body.getAttribute('data-terminal-theme') || '';
+    const data = Object.assign({}, payload, {
+        storeName: (storeSettingsCache && storeSettingsCache.storeName) || 'OmniPOS',
+        compactThreshold: advancedSettingsCache.customerDisplayCompactThreshold || 8,
+        theme
+    });
+    authFetch(`${API_URL}/customer-display/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ terminal: localStorage.getItem('omnipos_terminal_id') || 'main', type, data }),
+        timeoutMs: 4000
+    }).catch(() => {});
+}
+function previewCustomerDisplayLayout() {
+    const layout = document.getElementById('adv-customer-display-layout').value || 'ledger';
+    const theme = document.body.getAttribute('data-theme') || '';
+    window.open('customer-display-device.html?demo=' + encodeURIComponent(layout) + '&theme=' + encodeURIComponent(theme), '_blank');
+}
+function generateCustomerDisplayPairCode() {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    document.getElementById('adv-customer-display-pair-code').value = String(100000 + (buf[0] % 900000));
+}
 let customerDisplayChannel = null;
 function broadcastCustomerDisplay(type, payload) {
     if (!advancedSettingsCache || !advancedSettingsCache.customerDisplayEnabled) return;
+    pushCustomerDisplayToDevice(type, payload); // OMNI-CDISPLAY
+    if (advancedSettingsCache.customerDisplayMode === 'device') return;
     if (typeof BroadcastChannel === 'undefined') return;
     if (!customerDisplayChannel) {
         try { customerDisplayChannel = new BroadcastChannel('omnipos-customer-display'); }
@@ -17393,6 +17422,9 @@ async function loadAdvancedSettingsPanel() {
     setVal('adv-idle-lock-minutes', s.idleAutoLockMinutes);
     setChecked('adv-customer-display-enabled', s.customerDisplayEnabled);
     setVal('adv-customer-display-compact-threshold', s.customerDisplayCompactThreshold || 8);
+    setVal('adv-customer-display-mode', s.customerDisplayMode || 'window'); // OMNI-CDISPLAY
+    setVal('adv-customer-display-layout', s.customerDisplayLayout || 'ledger');
+    setVal('adv-customer-display-pair-code', s.customerDisplayPairCode || '');
     setChecked('adv-sale-webhook-enabled', s.saleWebhookEnabled);
     setVal('adv-sale-webhook-url', s.saleWebhookUrl || '');
     setChecked('adv-2fa-enabled', s.twoFactorLoginEnabled);
@@ -17431,6 +17463,9 @@ async function saveAdvancedSettings() {
         idleAutoLockMinutes: parseInt(document.getElementById('adv-idle-lock-minutes').value, 10) || 5,
         customerDisplayEnabled: document.getElementById('adv-customer-display-enabled').checked,
         customerDisplayCompactThreshold: parseInt(document.getElementById('adv-customer-display-compact-threshold').value, 10) || 8,
+        customerDisplayMode: document.getElementById('adv-customer-display-mode').value,
+        customerDisplayLayout: document.getElementById('adv-customer-display-layout').value,
+        customerDisplayPairCode: (document.getElementById('adv-customer-display-pair-code').value || '').trim(),
         saleWebhookEnabled: document.getElementById('adv-sale-webhook-enabled').checked,
         saleWebhookUrl: (document.getElementById('adv-sale-webhook-url').value || '').trim(),
         twoFactorLoginEnabled: document.getElementById('adv-2fa-enabled').checked,
@@ -21102,7 +21137,58 @@ function applyInventoryViewModeUi() {
     else applyInventoryFiltersOpenUi();
     updateInventoryFilterIndicator();
     syncInventoryGridControls();
+    if (typeof syncInventoryScrollLayout === 'function') syncInventoryScrollLayout();
 }
+// ---- Products > Grid view (phone/tablet): ang PRODUCT CARDS lang ang naiiscroll. ----
+// Nakapirmi sa itaas ang toolbar, search at ang "Showing 1-8 of 8 products" row; ang #inv-grid-scroll
+// ang binibigyan ng eksaktong taas (hanggang sa itaas ng bottom nav), kaya ito lang ang gumagalaw.
+function syncInventoryScrollLayout() {
+    const view = document.getElementById('view-products');
+    const sc = document.getElementById('inv-grid-scroll');
+    if (!view || !sc) return;
+    const visible = view.getClientRects().length > 0;
+    const on = inventoryViewMode === 'grid' && window.innerWidth <= 1024 && visible;
+    view.classList.toggle('inv-grid-mode', on);
+    // Kapag naka-grid mode: i-lock ang scroll ng buong page (html/body) para ang product cards LANG ang gumagalaw.
+    document.documentElement.classList.toggle('inv-grid-lock', on);
+    document.body.classList.toggle('inv-grid-lock', on);
+    if (!on) { sc.style.height = ''; return; }
+    if (window.scrollY || document.documentElement.scrollTop) { try { window.scrollTo(0, 0); } catch (e) {} }
+    const nav = document.querySelector('.bottom-nav');
+    const navH = (nav && getComputedStyle(nav).display !== 'none') ? nav.offsetHeight : 0;
+    const top = sc.getBoundingClientRect().top;
+    // Eksaktong taas: mula sa itaas ng cards hanggang sa itaas ng bottom nav (8px na hangin sa ilalim).
+    sc.style.height = Math.max(160, Math.floor(window.innerHeight - top - navH - 8)) + 'px';
+}
+(function initInventoryScrollLayout() {
+    let raf = 0;
+    const run = () => {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => { raf = 0; try { syncInventoryScrollLayout(); } catch (e) {} });
+    };
+    window.syncInventoryScrollLayoutSoon = run;
+    window.addEventListener('resize', run);
+    window.addEventListener('orientationchange', run);
+    const wire = () => {
+        const view = document.getElementById('view-products');
+        if (!view) return;
+        if (typeof MutationObserver === 'function') {
+            const mo = new MutationObserver(run);
+            mo.observe(view, { attributes: true, attributeFilter: ['style'] });
+            const mainView = document.getElementById('main-view');
+            if (mainView) mo.observe(mainView, { attributes: true, attributeFilter: ['style', 'class'] });
+        }
+        if (typeof ResizeObserver === 'function') {
+            const ro = new ResizeObserver(run);
+            ['.view-header-row', '.terminal-top-controls', '#inv-grid-toolbar', '.inv-grid-head'].forEach((sel) => {
+                const el = view.querySelector(sel);
+                if (el) ro.observe(el);
+            });
+        }
+        run();
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
+})();
 function toggleInventoryViewMode() {
     setInventoryViewMode(inventoryViewMode === 'grid' ? 'list' : 'grid');
 }
@@ -21296,6 +21382,8 @@ function setInventoryGridPage(page) {
     renderInventoryGrid();
     const wrap = document.getElementById('inventory-grid-wrap');
     if (wrap) wrap.scrollTop = 0;
+    const cardScroll = document.getElementById('inv-grid-scroll');
+    if (cardScroll) cardScroll.scrollTop = 0;
     const summary = document.getElementById('inv-grid-summary');
     if (summary && summary.scrollIntoView) summary.scrollIntoView({ block: 'nearest' });
 }
@@ -21372,6 +21460,12 @@ function buildInventoryGridCard(p) {
 
     const catLabel = p.category || 'Uncategorized';
     const priceText = `₱${(parseFloat(p.price) || 0).toFixed(2)}`;
+    const _pr = parseFloat(p.price), _co = parseFloat(p.cost);
+    let marginHtml = '';
+    if (Number.isFinite(_pr) && Number.isFinite(_co) && _pr > 0 && _co > 0) {
+        const mg = ((_pr - _co) / _pr) * 100;
+        marginHtml = `<em class="inv-card-margin ${mg < 0 ? 'neg' : (mg < 10 ? 'thin' : '')}" title="Profit margin: ${mg.toFixed(1)}% (profit ₱${(_pr - _co).toFixed(2)} per unit)">${mg >= 0 ? '+' : ''}${mg.toFixed(0)}%</em>`;
+    }
     card.innerHTML = `
         <div class="inv-card-media">
             <div class="inv-card-photo"></div>
@@ -21387,7 +21481,7 @@ function buildInventoryGridCard(p) {
         <div class="inv-card-body">
             <h4 class="inv-card-name" title="${escapeHtml(tip)}">${escapeHtml(name)}</h4>
             <div class="inv-card-row">
-                <div class="inv-card-price" title="${escapeHtml(priceText + productPriceSuffix(p, true))}">${priceText}<small>${productPriceSuffix(p)}</small></div>
+                <div class="inv-card-price" title="${escapeHtml(priceText + productPriceSuffix(p, true))}">${priceText}<small>${productPriceSuffix(p)}</small>${marginHtml}</div>
                 <div class="inv-card-actions">
                     <button type="button" data-act="edit" class="edit" title="Edit product" aria-label="Edit product"><i class="fa-solid fa-pen-to-square"></i></button>
                     <button type="button" data-act="delete" class="delete" title="Delete product" aria-label="Delete product"><i class="fa-solid fa-trash"></i></button>
@@ -21529,7 +21623,7 @@ function updateInventorySelectBar() {
     if (!bar) return;
     bar.hidden = !inventorySelectMode;
     const cnt = document.getElementById('inv-select-count');
-    if (cnt) cnt.textContent = n === 0 ? 'Tap products to select' : `${n} selected`;
+    if (cnt) cnt.innerHTML = n === 0 ? 'Tap products to select' : `${n}<span class="inv-sel-word"> selected</span>`;
     const allBtn = document.getElementById('inv-select-all-btn');
     if (allBtn) {
         const everything = inventoryGridListTotal > 0 && n >= inventoryGridListTotal;
@@ -21537,6 +21631,7 @@ function updateInventorySelectBar() {
         allBtn.disabled = inventoryGridListTotal === 0;
     }
     bar.querySelectorAll('[data-sel-act]').forEach(b => { b.disabled = n === 0; });
+    bar.querySelectorAll('[data-sel-one]').forEach(b => { b.disabled = n !== 1; });
 }
 function setInventorySelectMode(on) {
     on = !!on;
@@ -21688,6 +21783,194 @@ async function bulkChangeInventoryCategory() {
         icon: failed.length ? (applied.size || queued ? 'warning' : 'error') : 'success'
     });
     if (applied.size || queued) { exitInventorySelectMode(); loadInventoryProductsTable(); }
+}
+// ===== Products Pro: bulk price edit, duplicate product, price history =====
+function computeBulkPrice(oldVal, mode, val, step) {
+    const old = Number(oldVal);
+    const base = Number.isFinite(old) ? old : 0;
+    let next;
+    if (mode === 'set') next = val;
+    else if (mode === 'pct_up') next = base * (1 + val / 100);
+    else if (mode === 'pct_down') next = base * (1 - val / 100);
+    else if (mode === 'amt_up') next = base + val;
+    else if (mode === 'amt_down') next = base - val;
+    else return base;
+    if (!Number.isFinite(next)) return base;
+    if (step > 0) next = Math.round(next / step) * step;
+    next = Math.max(0, next);
+    return Math.round(next * 100) / 100;
+}
+async function bulkEditInventoryPrices() {
+    const picked = getInventorySelectedProducts();
+    if (!picked.length) { Swal.fire('Nothing selected', 'Tap the products you want to reprice first.', 'info'); return; }
+    const count = picked.length;
+    const plural = count === 1 ? '' : 's';
+    const isAdmin = !!(currentUser && currentUser.role && currentUser.role.toLowerCase() === 'admin');
+    const canApplyDirectly = isAdmin || !!(currentPermissions && currentPermissions.products_direct_apply);
+    const peso = (n) => '\u20b1' + (Number(n) || 0).toFixed(2);
+    const ask = await Swal.fire({
+        title: `Edit prices (${count})`,
+        html: `<div style="text-align:left;font-size:0.9rem;">
+            <label style="display:block;margin:0 0 4px;font-weight:600;">What to change</label>
+            <select id="inv-bp-field" class="swal2-select" style="margin:0 0 10px;width:100%;"><option value="price">Selling price</option><option value="cost">Cost</option></select>
+            <label style="display:block;margin:0 0 4px;font-weight:600;">How</label>
+            <select id="inv-bp-mode" class="swal2-select" style="margin:0 0 10px;width:100%;">
+                <option value="pct_up">Increase by %</option><option value="pct_down">Decrease by %</option>
+                <option value="amt_up">Add \u20b1 amount</option><option value="amt_down">Subtract \u20b1 amount</option>
+                <option value="set">Set exact price</option></select>
+            <label style="display:block;margin:0 0 4px;font-weight:600;">Value</label>
+            <input id="inv-bp-val" class="swal2-input" type="number" inputmode="decimal" min="0" step="any" style="margin:0 0 10px;width:100%;box-sizing:border-box;" placeholder="e.g. 10">
+            <label style="display:block;margin:0 0 4px;font-weight:600;">Round to</label>
+            <select id="inv-bp-round" class="swal2-select" style="margin:0 0 10px;width:100%;"><option value="0">No rounding</option><option value="0.5">Nearest \u20b10.50</option><option value="1">Nearest \u20b11</option><option value="5">Nearest \u20b15</option></select>
+            <div id="inv-bp-preview" style="font-size:0.82rem;color:#64748b;line-height:1.5;"></div>
+            ${canApplyDirectly ? '' : `<p style="margin:10px 0 0;color:#64748b;">You do not have Direct Apply permission, so this will send ${count} update request${plural} to an Admin for approval.</p>`}
+        </div>`,
+        showCancelButton: true,
+        confirmButtonText: canApplyDirectly ? 'Apply' : 'Send requests',
+        focusConfirm: false,
+        didOpen: () => {
+            const f = document.getElementById('inv-bp-field'), m = document.getElementById('inv-bp-mode'),
+                v = document.getElementById('inv-bp-val'), r = document.getElementById('inv-bp-round'), pv = document.getElementById('inv-bp-preview');
+            const refresh = () => {
+                const val = parseFloat(v.value);
+                if (!Number.isFinite(val) || val < 0) { pv.textContent = 'Enter a value to preview the new prices.'; return; }
+                const rows = picked.slice(0, 3).map(p => {
+                    const was = Number(p[f.value]);
+                    const now = computeBulkPrice(p[f.value], m.value, val, parseFloat(r.value) || 0);
+                    return `${escapeHtml(String(p.name || p.code))}: ${peso(was)} \u2192 <b>${peso(now)}</b>`;
+                });
+                pv.innerHTML = rows.join('<br>') + (count > 3 ? `<br>\u2026and ${count - 3} more` : '');
+            };
+            [f, m, v, r].forEach(el => { el.addEventListener('input', refresh); el.addEventListener('change', refresh); });
+            refresh();
+        },
+        preConfirm: () => {
+            const val = parseFloat(document.getElementById('inv-bp-val').value);
+            if (!Number.isFinite(val) || val < 0) { Swal.showValidationMessage('Enter a valid value (0 or more).'); return false; }
+            const mode = document.getElementById('inv-bp-mode').value;
+            if (mode === 'pct_down' && val > 100) { Swal.showValidationMessage('A decrease cannot be more than 100%.'); return false; }
+            return { field: document.getElementById('inv-bp-field').value, mode, val, step: parseFloat(document.getElementById('inv-bp-round').value) || 0 };
+        }
+    });
+    if (!ask.isConfirmed || !ask.value) return;
+    const { field, mode, val, step } = ask.value;
+    const label = field === 'cost' ? 'cost' : 'price';
+
+    Swal.fire({
+        title: 'Updating\u2026', html: `<span id="inv-bulk-progress">0 / ${count}</span>`,
+        allowOutsideClick: false, allowEscapeKey: false, showConfirmButton: false, didOpen: () => { Swal.showLoading(); }
+    });
+    productCatalogMutationVersion++;
+    const applied = new Map();
+    let queued = 0, unchanged = 0;
+    const failed = [];
+    for (let i = 0; i < picked.length; i++) {
+        const prod = picked[i];
+        const progressEl = document.getElementById('inv-bulk-progress');
+        if (progressEl) progressEl.textContent = `${i + 1} / ${count}`;
+        const next = computeBulkPrice(prod[field], mode, val, step);
+        if (Math.abs(next - (Number(prod[field]) || 0)) < 0.005 && prod[field] !== undefined) { unchanged++; continue; }
+        try {
+            const res = await authFetch(`${API_URL}/products/${encodeURIComponent(prod.code)}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updatedData: { [field]: next }, userRole: currentUser.role, username: currentUser.username })
+            });
+            const reply = await res.json().catch(() => ({}));
+            if (reply && reply.success) {
+                if (canApplyDirectly) applied.set(invSelKey(prod.code), next); else queued++;
+            } else {
+                failed.push(`${prod.code}: ${(reply && reply.message) || 'Could not update.'}`);
+            }
+        } catch (e) {
+            failed.push(`${prod.code}: connection error`);
+        }
+    }
+    productCatalogMutationVersion++;
+    if (applied.size) {
+        const touch = (list) => { if (Array.isArray(list)) list.forEach(p => { if (p && applied.has(invSelKey(p.code))) p[field] = applied.get(invSelKey(p.code)); }); };
+        touch(cachedInventoryProducts);
+        touch(globalProducts);
+        renderInventoryProductsTable();
+    }
+    const lines = [];
+    if (applied.size) lines.push(`${applied.size} product${applied.size === 1 ? '' : 's'} updated (${label}).`);
+    if (queued) lines.push(`${queued} update request${queued === 1 ? '' : 's'} sent for Admin approval.`);
+    if (unchanged) lines.push(`${unchanged} unchanged.`);
+    if (failed.length) lines.push(`<span style="color:#b91c1c;">${failed.length} failed:</span><br>` + failed.slice(0, 5).map(escapeHtml).join('<br>') + (failed.length > 5 ? `<br>\u2026and ${failed.length - 5} more` : ''));
+    await Swal.fire({
+        title: failed.length ? (applied.size || queued ? 'Done, with errors' : 'Could not update') : 'Done',
+        html: `<div style="text-align:left;font-size:0.9rem;">${lines.join('<br>')}</div>`,
+        icon: failed.length ? (applied.size || queued ? 'warning' : 'error') : 'success'
+    });
+    if (applied.size || queued) { exitInventorySelectMode(); loadInventoryProductsTable(); }
+}
+function suggestDuplicateProductCode(code) {
+    const taken = new Set((Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : []).map(p => invSelKey(p && p.code)));
+    const base = String(code || '').trim() || 'ITEM';
+    for (let n = 2; n < 1000; n++) {
+        const cand = `${base}-${n}`;
+        if (!taken.has(invSelKey(cand))) return cand;
+    }
+    return `${base}-${Date.now()}`;
+}
+async function duplicateInventorySelected() {
+    const picked = getInventorySelectedProducts();
+    if (picked.length !== 1) { Swal.fire('Select one product', 'Pick exactly one product to duplicate.', 'info'); return; }
+    const src = picked[0];
+    let full = null;
+    try {
+        const r = await authFetch(`${API_URL}/product-full/${encodeURIComponent(src.code)}`, { cache: 'no-store' });
+        if (r.ok) { const d = await r.json(); full = d && d.product ? d.product : null; }
+    } catch (e) { /* fall back to the list data below */ }
+    const m = full || src;
+    exitInventorySelectMode();
+    openProductModal('ADD');
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v === undefined || v === null) ? '' : v; };
+    set('p-form-code', suggestDuplicateProductCode(m.code));
+    set('p-form-name', `${m.name || ''} (copy)`.trim());
+    set('p-form-category', m.category || '');
+    set('p-form-price', m.price);
+    set('p-form-cost', m.cost);
+    set('p-form-supplier', m.supplier || '');
+    set('p-form-threshold', m.lowStockThreshold);
+    set('p-form-stock', 0);
+    set('p-form-image', m.image || '');
+    if (typeof updateProductPhotoPreview === 'function') updateProductPhotoPreview(m.image || '');
+    set('p-form-details', m.description || '');
+    set('p-form-specs', Array.isArray(m.specs) ? JSON.stringify(m.specs) : '');
+    if (typeof setProductGalleryImages === 'function') setProductGalleryImages(Array.isArray(m.images) ? m.images.filter(Boolean) : []);
+    if (typeof updateProductSpecsButtonLabel === 'function') updateProductSpecsButtonLabel();
+    const nameEl = document.getElementById('p-form-name');
+    if (nameEl) { try { nameEl.focus(); nameEl.select(); } catch (e) {} }
+}
+async function showInventoryPriceHistory() {
+    const picked = getInventorySelectedProducts();
+    if (picked.length !== 1) { Swal.fire('Select one product', 'Pick exactly one product to see its price history.', 'info'); return; }
+    const prod = picked[0];
+    // Walang "Loading" modal dito: mabilis ang lokal na server, at ang pag-pop ng dalawang modal nang sunod ay nag-iiwan ng spinner.
+    let rows = [];
+    try {
+        const r = await authFetch(`${API_URL}/products/${encodeURIComponent(prod.code)}/price-history`, { cache: 'no-store' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.success) throw new Error((d && d.message) || 'Could not load the price history.');
+        rows = Array.isArray(d.history) ? d.history : [];
+    } catch (e) {
+        Swal.fire('Price history', escapeHtml(e.message || 'Could not load the price history.'), 'error');
+        return;
+    }
+    const peso = (n) => '\u20b1' + (Number(n) || 0).toFixed(2);
+    const body = rows.length ? `<div style="max-height:50vh;overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8rem;text-align:left;">
+        <thead><tr style="color:#64748b;"><th style="padding:4px 6px;white-space:nowrap;">When</th><th style="padding:4px 6px;">Field</th><th style="padding:4px 6px;white-space:nowrap;">Change</th><th style="padding:4px 6px;">By</th></tr></thead><tbody>` +
+        rows.map(h => {
+            const up = Number(h.to) > Number(h.from);
+            const when = new Date(h.at);
+            const sameYear = !isNaN(when.getTime()) && when.getFullYear() === new Date().getFullYear();
+            const whenTxt = isNaN(when.getTime()) ? '' : when.toLocaleString([], Object.assign({ month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }, sameYear ? {} : { year: 'numeric' }));
+            return `<tr style="border-top:1px solid rgba(148,163,184,.25);"><td style="padding:6px;white-space:nowrap;">${escapeHtml(whenTxt)}</td><td style="padding:6px;white-space:nowrap;">${h.field === 'cost' ? 'Cost' : 'Price'}</td>` +
+                `<td style="padding:6px;white-space:nowrap;">${peso(h.from)} \u2192 <b style="color:${up ? '#16a34a' : '#dc2626'};">${peso(h.to)}</b></td><td style="padding:6px;white-space:nowrap;">${escapeHtml(h.by || '')}</td></tr>`;
+        }).join('') + `</tbody></table></div>`
+        : `<p style="margin:8px 0;color:#64748b;">No price changes recorded yet. Changes made from now on will appear here.</p>`;
+    Swal.fire({ title: escapeHtml(String(prod.name || prod.code)), html: `<div style="text-align:left;">${body}</div>`, confirmButtonText: 'Close', width: 560 });
 }
 function renderInventoryGrid() {
     const out = document.getElementById('inventory-grid-output');
@@ -23051,6 +23334,15 @@ async function handleProductFormSubmit(e) {
         await Swal.fire('Category Required', 'Please choose a category, or use the "+" button to create a new one.', 'warning');
         openAddCategoryModal();
         return;
+    }
+    {
+        // Babala kapag may kapareho nang pangalan ng produkto (ibang code) para maiwasan ang aksidenteng double entry.
+        const nameKey = String(document.getElementById('p-form-name').value || '').trim().toLowerCase();
+        const twin = nameKey && (Array.isArray(cachedInventoryProducts) ? cachedInventoryProducts : []).find(q => q && String(q.name || '').trim().toLowerCase() === nameKey && invSelKey(q.code) !== invSelKey(code));
+        if (twin) {
+            const go = await Swal.fire({ icon: 'warning', title: 'Same product name already exists', html: `“${escapeHtml(String(twin.name))}” is already used by code <b>${escapeHtml(String(twin.code))}</b>. Save this one anyway?`, showCancelButton: true, confirmButtonText: 'Save anyway', cancelButtonText: 'Go back' });
+            if (!go.isConfirmed) return;
+        }
     }
     const payload = {
         code: code,
@@ -31614,7 +31906,7 @@ function buksanScannerParaSaBackup() {
             window.onQRScanSuccess = null;
             setTimeout(() => {
                 const SearchBtn = Array.from(document.querySelectorAll('button'))
-                                        .find(btn => btn.textContent.trim().includes('Search') || btn.innerText.includes('Search'));
+                                        .find(btn => (window.OmniLang ? OmniLang.originalText(btn) : btn.textContent).includes('Search') || btn.innerText.includes('Search'));
                 if (SearchBtn) {
                     SearchBtn.click();
                 } else {

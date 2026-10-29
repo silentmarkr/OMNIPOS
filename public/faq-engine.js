@@ -3364,7 +3364,12 @@
       warn80: 'You have used most of today\'s AI limit. A One-day Boost can keep you going.',
       boostTitle: 'One-day Boost', boostHint: 'Out of daily neurons? Add more for today only — it disappears at midnight. Does not change your monthly credits.',
       boostToday: 'Boosts bought today', boostBtn: 'Buy Boost', boostAdminText: 'Enter an admin password to buy a Boost (+{neurons} neurons, today only) for {cost} Omni Tokens.',
-      boostChip: 'Buy One-day Boost',
+      boostChip: 'Buy One-day Boost', boostNone: 'No Boost is available right now. Try again later or upgrade your AI plan.',
+      limitDailyTitle: 'Daily neurons used up', limitDailySub: 'Omni AI is paused until the daily limit resets. A One-day Boost lets you keep going right now.',
+      limitMonthlyTitle: 'Monthly AI credits used up', limitMonthlySub: 'Your credits reset next month. Upgrade your plan or add extra credits to keep using Omni AI.',
+      limitUsedToday: 'Used today', limitDailyCap: 'Daily limit', limitResetsIn: 'Resets in', limitUsedCredits: 'Credits used', limitMonthlyCap: 'Monthly credits',
+      limitResetsNext: 'Next month', limitResetsMidnight: 'Midnight', limitReady: 'The limit has reset. You can ask again now.',
+      limitCreditsLeft: 'Monthly credits left', limitBoostNote: 'Today only', limitFull: 'Full',
       boostLate: 'Only about {t} is left today. A Boost expires at midnight, so you will get very little use out of it.',
       boostLateConfirm: 'Buy anyway',
       boostCutoffNote: 'Boosts cannot be bought this close to midnight. You can buy one after midnight.'
@@ -3389,7 +3394,12 @@
       warn80: 'Halos ubos na ang AI limit mo ngayong araw. Puwede kang bumili ng One-day Boost para makapagpatuloy.',
       boostTitle: 'One-day Boost', boostHint: 'Ubos na ang daily neurons? Dagdagan para sa ngayong araw lang — mawawala ito sa hatinggabi. Hindi nito ginagalaw ang monthly credits.',
       boostToday: 'Nabiling Boost ngayon', boostBtn: 'Bilhin ang Boost', boostAdminText: 'Maglagay ng admin password para bilhin ang Boost (+{neurons} neurons, ngayong araw lang) sa halagang {cost} Omni Tokens.',
-      boostChip: 'Bumili ng One-day Boost',
+      boostChip: 'Bumili ng One-day Boost', boostNone: 'Walang available na Boost ngayon. Subukan muli mamaya o i-upgrade ang AI plan.',
+      limitDailyTitle: 'Ubos na ang daily neurons', limitDailySub: 'Naka-pause ang Omni AI hanggang mag-reset ang daily limit. Sa One-day Boost, makakapagpatuloy ka agad.',
+      limitMonthlyTitle: 'Ubos na ang buwanang AI credits', limitMonthlySub: 'Magre-reset ang credits sa susunod na buwan. Mag-upgrade ng plan o bumili ng extra credits para magamit pa ang Omni AI.',
+      limitUsedToday: 'Nagamit ngayon', limitDailyCap: 'Daily limit', limitResetsIn: 'Magre-reset sa', limitUsedCredits: 'Nagamit na credits', limitMonthlyCap: 'Buwanang credits',
+      limitResetsNext: 'Susunod na buwan', limitResetsMidnight: 'Hatinggabi', limitReady: 'Nag-reset na ang limit. Puwede ka nang magtanong ulit.',
+      limitCreditsLeft: 'Natitirang buwanang credits', limitBoostNote: 'Ngayong araw lang', limitFull: 'Puno na',
       boostLate: 'Mga {t} na lang ang natitira ngayong araw. Mawawala ang Boost sa hatinggabi, kaya kaunti na lang ang magagamit mo.',
       boostLateConfirm: 'Bilhin pa rin',
       boostCutoffNote: 'Hindi na puwedeng bumili ng Boost malapit na ang hatinggabi. Puwede kang bumili pagkatapos ng hatinggabi.'
@@ -3625,6 +3635,86 @@
     if (v >= 1000) return trim(v / 1000, 1) + 'k';
     return String(Math.round(v));
   }
+  // ---- Limit card: ang mensahe kapag ubos na ang daily neurons (o ang buwanang credits) ----------
+  // Dati, simpleng text na notice lang ito. Ngayon ay buong card: meter, nagamit/limit, live na countdown
+  // hanggang reset, at malinaw na mga aksyon (One-day Boost, Upgrade, Support ticket).
+  function fmtLimitClock(ms) {
+    const t = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(Math.floor(t / 3600))}:${p(Math.floor((t % 3600) / 60))}:${p(t % 60)}`;
+  }
+  function buildLimitCardHtml(data, s, ps, showBoost) {
+    const isDaily = !!(data && data.dailyLimitReached);
+    const daily = (data && data.daily && typeof data.daily.cap === 'number' && data.daily.cap > 0) ? data.daily : null;
+    const monthlyLimit = (data && typeof data.limit === 'number') ? data.limit : null;
+    const monthlyLeft = (data && typeof data.remaining === 'number') ? Math.max(0, data.remaining) : null;
+    const monthlyUsed = (data && typeof data.used === 'number') ? data.used : (monthlyLimit !== null && monthlyLeft !== null ? Math.max(0, monthlyLimit - monthlyLeft) : null);
+    const rcvAt = Number(data && data._rcvAt) || Date.now();
+    let resetAt = 0;
+    if (isDaily && daily) resetAt = typeof daily.resetsInMs === 'number' ? rcvAt + daily.resetsInMs : (Number(daily.resetsAt) || 0);
+    let used, cap, unitHtml;
+    if (isDaily && daily) { used = Number(daily.used) || 0; cap = Number(daily.cap) || 0; }
+    else if (!isDaily && monthlyLimit) { used = monthlyUsed === null ? monthlyLimit : monthlyUsed; cap = monthlyLimit; }
+    else { used = 0; cap = 0; }
+    const pct = cap > 0 ? Math.min(100, Math.max(0, Math.round((used / cap) * 100))) : 100;
+    const fmtVal = (n) => (isDaily ? fmtNeurons(n) : String(Math.round(Number(n) || 0)));
+    const title = isDaily ? ps.limitDailyTitle : ps.limitMonthlyTitle;
+    const sub = isDaily ? ps.limitDailySub : ps.limitMonthlySub;
+    const resetValue = isDaily
+      ? (resetAt ? `<b class="faq-limit-clock" data-reset="${resetAt}">${fmtLimitClock(resetAt - Date.now())}</b>` : `<b>${escapeHtml(ps.limitResetsMidnight)}</b>`)
+      : `<b>${escapeHtml(ps.limitResetsNext)}</b>`;
+    const stats = cap > 0 ? `
+      <div class="faq-limit-stats">
+        <div class="faq-limit-stat"><span class="faq-limit-k">${escapeHtml(isDaily ? ps.limitUsedToday : ps.limitUsedCredits)}</span><b class="faq-limit-v">${escapeHtml(fmtVal(used))}</b></div>
+        <div class="faq-limit-stat"><span class="faq-limit-k">${escapeHtml(isDaily ? ps.limitDailyCap : ps.limitMonthlyCap)}</span><b class="faq-limit-v">${escapeHtml(fmtVal(cap))}</b></div>
+        <div class="faq-limit-stat is-reset"><span class="faq-limit-k">${escapeHtml(ps.limitResetsIn)}</span><span class="faq-limit-v">${resetValue}</span></div>
+      </div>` : '';
+    const msgFallback = (!cap && data && data.message) ? `<div class="faq-limit-sub">${escapeHtml(data.message)}</div>` : '';
+    const foot = (isDaily && monthlyLeft !== null && monthlyLimit)
+      ? `<div class="faq-limit-foot"><i class="fa-solid fa-circle-check"></i><span>${escapeHtml(ps.limitCreditsLeft)}: <b>${escapeHtml(String(monthlyLeft))}/${escapeHtml(String(monthlyLimit))}</b></span></div>` : '';
+    return `
+      <div class="faq-limit-card ${isDaily ? 'is-daily' : 'is-monthly'}" role="status" aria-live="polite">
+        <div class="faq-limit-head">
+          <div class="faq-limit-icon"><i class="fa-solid ${isDaily ? 'fa-hourglass-end' : 'fa-battery-empty'}"></i></div>
+          <div class="faq-limit-title">${escapeHtml(title)}</div>
+          <span class="faq-limit-badge">${pct >= 100 ? escapeHtml(ps.limitFull) : pct + '%'}</span>
+        </div>
+        <div class="faq-limit-sub">${escapeHtml(sub)}</div>
+        ${cap > 0 ? `<div class="faq-limit-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>` : msgFallback}
+        ${stats}
+        <div class="faq-limit-ready"><i class="fa-solid fa-circle-check"></i> ${escapeHtml(ps.limitReady)}</div>
+        <div class="faq-limit-actions">
+          ${showBoost ? `<button type="button" class="faq-limit-btn is-primary" id="faq-credit-boost-btn"><i class="fa-solid fa-bolt"></i><span>${escapeHtml(ps.boostChip)}</span><em>${escapeHtml(ps.limitBoostNote)}</em></button>` : ''}
+          <button type="button" class="faq-limit-btn ${showBoost ? 'is-secondary' : 'is-primary'}" id="faq-credit-upgrade-btn"><i class="fa-solid fa-arrow-trend-up"></i><span>${escapeHtml(ps.upgradeBtn)}</span></button>
+          <button type="button" class="faq-limit-btn is-ghost" id="faq-credit-exhausted-ticket-btn"><i class="fa-solid fa-life-ring"></i><span>${escapeHtml(s.quickTicket)}</span></button>
+        </div>
+        ${foot}
+      </div>`;
+  }
+  // Live countdown ng card: bawat segundo; humihinto kapag natanggal ang bubble; pagdating ng reset ay lalabas ang
+  // \"Nag-reset na\" at kusang nire-refresh ang credit pill.
+  function wireLimitCard(root) {
+    const card = root && root.querySelector ? root.querySelector('.faq-limit-card') : null;
+    const el = card && card.querySelector('.faq-limit-clock[data-reset]');
+    if (!card || !el) return;
+    const resetAt = Number(el.dataset.reset) || 0;
+    if (!resetAt) return;
+    let timer = null;
+    const tick = () => {
+      if (!el.isConnected) { if (timer) clearInterval(timer); return; }
+      const left = resetAt - Date.now();
+      if (left <= 0) {
+        if (timer) clearInterval(timer);
+        el.textContent = fmtLimitClock(0);
+        card.classList.add('is-ready');
+        try { refreshAiCreditPill().catch(() => {}); } catch (e) {}
+        return;
+      }
+      el.textContent = fmtLimitClock(left);
+    };
+    timer = setInterval(tick, 1000);
+    tick();
+  }
   const EXTRA_STRINGS = {
     en: { title: 'Extra credits', hint: 'Cheaper than upgrading: adds credits and daily limit, valid until the end of this month.', credits: 'credits', left: 'left this month', buy: 'Buy',
           adminPwText: 'Enter an admin password to buy {name} ({credits} credits) for {cost} Omni Tokens.', bought: 'Bought this month', perCredit: 'token/credit' },
@@ -3632,11 +3722,14 @@
           adminPwText: 'Maglagay ng admin password para bilhin ang {name} ({credits} credits) sa halagang {cost} Omni Tokens.', bought: 'Nabili ngayong buwan', perCredit: 'token/credit' }
   };
   function extraStrings() { return EXTRA_STRINGS[currentLang() === 'tl' ? 'tl' : 'en']; }
-  async function openAiPlansModal() {
+  // opts.boostOnly = galing sa "Buy One-day Boost": Boost options LANG ang ipapakita (walang plans/extra credits).
+  // Ang buong Omni AI Plans ay para sa Upgrade AI plan / credit pill lang.
+  async function openAiPlansModal(opts) {
+    const boostOnly = !!(opts && opts.boostOnly === true);
     const ps = planStrings();
     const swal = window.Swal && typeof window.Swal.fire === 'function' ? window.Swal : null;
     if (!swal) { alert(ps.loadError); return; }
-    swal.fire({ title: ps.title, html: `<div style="padding:12px 0;">${escapeHtml(ps.loading)}</div>`, showConfirmButton: false, showCloseButton: true, width: 560 });
+    swal.fire({ title: boostOnly ? ps.boostTitle : ps.title, html: `<div style="padding:12px 0;">${escapeHtml(ps.loading)}</div>`, showConfirmButton: false, showCloseButton: true, width: 560 });
     let data = null;
     try {
       const res = await authFetch(`${API_URL}/ai-assistant/plans`, { timeoutMs: 15000 });
@@ -3644,7 +3737,7 @@
       if (!res.ok || !data || !data.success) data = null;
     } catch (e) { data = null; }
     if (!data) {
-      swal.fire({ title: ps.title, html: `<div style="padding:8px 0;">${escapeHtml(ps.loadError)}</div>`, confirmButtonText: ps.close, width: 560 });
+      swal.fire({ title: boostOnly ? ps.boostTitle : ps.title, html: `<div style="padding:8px 0;">${escapeHtml(ps.loadError)}</div>`, confirmButtonText: ps.close, width: 560 });
       return;
     }
     const cap = (n) => n === 0 ? ps.unlimited : fmtNeurons(n);
@@ -3717,9 +3810,11 @@
       </div>` : '';
     // Ang pagpili ng AI model ay nasa button sa composer (faq-model-btn), hindi na rito.
     aiModelOfferCache = { at: Date.now(), data };
-    const html = `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}${boostHtml}${extraHtml}`;
+    const boostBal = typeof data.balanceTokens === 'number' ? `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${escapeHtml(ps.balance)}: <strong>${data.balanceTokens}</strong> ${escapeHtml(ps.tokens)}</div>` : '';
+    const boostOnlyHtml = boostBal + (boostHtml ? boostHtml.replace('margin-top:14px;', 'margin-top:4px;') : `<div style="padding:8px 0;">${escapeHtml(ps.boostNone)}</div>`);
+    const html = boostOnly ? boostOnlyHtml : `<div style="font-size:.85rem;opacity:.9;margin-bottom:6px;">${cur}${bal}${validUntil ? `<br>${escapeHtml(ps.validUntil)} ${escapeHtml(validUntil)}` : ''}</div>${cards}${boostHtml}${extraHtml}`;
     swal.fire({
-      title: ps.title, html, showConfirmButton: false, showCloseButton: true, width: 560,
+      title: boostOnly ? ps.boostTitle : ps.title, html, showConfirmButton: false, showCloseButton: true, width: 560,
       didOpen: (popup) => {
         popup.querySelectorAll('.faq-plan-card').forEach((card) => {
           const run = () => {
@@ -3739,11 +3834,6 @@
         popup.querySelectorAll('.faq-boost-buy-btn').forEach((btn) => {
           btn.addEventListener('click', () => buyDayBoost(btn.dataset.boost, btn.dataset.neurons, btn.dataset.cost));
         });
-        // Galing sa "daily limit reached" na button: dumiretso sa Boost section.
-        if (openAiPlansModal._scrollBoost) {
-          openAiPlansModal._scrollBoost = false;
-          setTimeout(() => popup.querySelector('#faq-boost-section')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
-        }
       }
     });
   }
@@ -3804,7 +3894,7 @@
       showCancelButton: true, confirmButtonText: lateText ? ps.boostLateConfirm : ps.confirm, cancelButtonText: ps.cancel,
       inputValidator: (v) => (!v ? ps.adminPwPlaceholder : undefined)
     });
-    if (!pw.isConfirmed) { openAiPlansModal(); return; }
+    if (!pw.isConfirmed) { openAiPlansModal({ boostOnly: true }); return; }
     swal.fire({ title: ps.buying, allowOutsideClick: false, showConfirmButton: false, didOpen: () => swal.showLoading() });
     let data = null; let status = 0;
     try {
@@ -3823,7 +3913,7 @@
     }
     const msg = (data && data.message) || (status === 402 ? ps.insufficient : ps.loadError);
     await swal.fire({ icon: 'error', title: ps.failTitle, text: msg, confirmButtonText: ps.close });
-    openAiPlansModal();
+    openAiPlansModal({ boostOnly: true });
   }
 
   async function buyExtraCredits(packId, name, cost, credits) {
@@ -4018,15 +4108,13 @@
       if (res.status === 402 && data && (data.creditsExhausted || data.dailyLimitReached)) {
         refreshAiCreditPill(data);
         const ps = planStrings();
-        loadingBubble.querySelector('.faq-chat-bubble').innerHTML = `
-          <div class="faq-ai-fallback-notice"><i class="fa-solid ${data.dailyLimitReached ? 'fa-hourglass-end' : 'fa-battery-empty'}"></i>
-            <span>${escapeHtml(data.message || s.creditsExhausted)}</span>
-          </div>
-          ${(data.dailyLimitReached && !(aiModelOfferCache.data && aiModelOfferCache.data.dayBoost && !(Array.isArray(aiModelOfferCache.data.dayBoost.options) && aiModelOfferCache.data.dayBoost.options.some((o) => o && o.canPurchase)))) ? `<button type="button" class="faq-chip" id="faq-credit-boost-btn"><i class="fa-solid fa-bolt"></i> ${escapeHtml(ps.boostChip)}</button>` : ''}
-          <button type="button" class="faq-chip" id="faq-credit-upgrade-btn"><i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(ps.upgradeBtn)}</button>
-          <button type="button" class="faq-chip" id="faq-credit-exhausted-ticket-btn"><i class="fa-solid fa-life-ring"></i> ${escapeHtml(s.quickTicket)}</button>`;
+        const showBoostBtn = !!(data.dailyLimitReached && !(aiModelOfferCache.data && aiModelOfferCache.data.dayBoost && !(Array.isArray(aiModelOfferCache.data.dayBoost.options) && aiModelOfferCache.data.dayBoost.options.some((o) => o && o.canPurchase))));
+        const limitBubble = loadingBubble.querySelector('.faq-chat-bubble');
+        limitBubble.classList.add('faq-chat-bubble-limit');
+        limitBubble.innerHTML = buildLimitCardHtml(data, s, ps, showBoostBtn);
+        wireLimitCard(loadingBubble);
         loadingBubble.querySelector('#faq-credit-upgrade-btn')?.addEventListener('click', () => openAiPlansModal());
-        loadingBubble.querySelector('#faq-credit-boost-btn')?.addEventListener('click', () => { openAiPlansModal._scrollBoost = true; openAiPlansModal(); });
+        loadingBubble.querySelector('#faq-credit-boost-btn')?.addEventListener('click', () => openAiPlansModal({ boostOnly: true }));
         loadingBubble.querySelector('#faq-credit-exhausted-ticket-btn')?.addEventListener('click', openTicketModal);
         if (chatHistory.length && chatHistory[chatHistory.length - 1].role === 'user') chatHistory.pop();
         return true;

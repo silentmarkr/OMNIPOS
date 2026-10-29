@@ -125,7 +125,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261027-4">
+    <link rel="stylesheet" href="style.css?v=20261028-4">
 
     <link rel="stylesheet" href="css/themes/vivid-base.css?v=1" data-retry>
     <link rel="stylesheet" href="css/themes/theme-dark.css?v=2" data-retry>
@@ -842,12 +842,17 @@
                                 <button type="button" class="inv-select-toggle" id="inv-select-btn" onclick="toggleInventorySelectMode()" title="Select products (or press and hold a card)" aria-pressed="false"><i class="fa-solid fa-square-check"></i><span>Select</span></button>
                             </div>
                         </div>
-                        <div class="inv-grid" id="inventory-grid-output"></div>
-                        <div class="inv-grid-pager" id="inv-grid-pager"></div>
+                        <div class="inv-grid-scroll" id="inv-grid-scroll">
+                            <div class="inv-grid" id="inventory-grid-output"></div>
+                            <div class="inv-grid-pager" id="inv-grid-pager"></div>
+                        </div>
                         <div class="inv-select-bar" id="inv-select-bar" role="toolbar" aria-label="Bulk actions" hidden>
                             <span class="inv-select-count" id="inv-select-count" aria-live="polite">0 selected</span>
                             <button type="button" id="inv-select-all-btn" onclick="toggleInventorySelectAll()">All</button>
                             <button type="button" data-sel-act="1" onclick="bulkChangeInventoryCategory()" title="Change category" aria-label="Change category"><i class="fa-solid fa-layer-group"></i><span class="lbl">Category</span></button>
+                            <button type="button" data-sel-act="1" onclick="bulkEditInventoryPrices()" title="Edit prices" aria-label="Edit prices"><i class="fa-solid fa-peso-sign"></i><span class="lbl">Price</span></button>
+                            <button type="button" data-sel-one="1" onclick="duplicateInventorySelected()" title="Duplicate product (select one)" aria-label="Duplicate product"><i class="fa-regular fa-clone"></i><span class="lbl">Copy</span></button>
+                            <button type="button" data-sel-one="1" onclick="showInventoryPriceHistory()" title="Price history (select one)" aria-label="Price history"><i class="fa-solid fa-clock-rotate-left"></i><span class="lbl">History</span></button>
                             <button type="button" data-sel-act="1" class="danger" onclick="bulkDeleteInventorySelected()" title="Delete selected" aria-label="Delete selected"><i class="fa-solid fa-trash-can"></i><span class="lbl">Delete</span></button>
                             <button type="button" onclick="exitInventorySelectMode()" title="Done" aria-label="Done selecting"><i class="fa-solid fa-xmark"></i></button>
                         </div>
@@ -2588,6 +2593,12 @@
             </p>
 
             <div id="ux-settings-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
+            <div class="input-field-group" id="ui-language-group" data-no-dirty>
+                <label for="ui-language-select"><i class="fa-solid fa-language"></i> Language</label>
+                <select id="ui-language-select" data-no-translate autocomplete="off"><option value="en">English</option></select>
+                <p style="font-size:0.78rem; color: var(--text-muted); margin:4px 0 0;">Display only. Printed documents stay in English.</p>
+            </div>
+
 
             <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
                 <input type="checkbox" id="ux-dark-mode-default" style="width:auto;" onchange="previewDarkMode(this.checked)" autocomplete="off">
@@ -2786,6 +2797,36 @@
                 <small style="color:var(--text-muted); font-size:0.78rem;">Once the cart has more line items than this, the customer display automatically shrinks the rows so everything — including the Total — stays visible without needing to scroll.</small>
             </div>
             <button type="button" class="btn-action-outline" onclick="openCustomerDisplay()"><i class="fa-solid fa-up-right-from-square"></i> Open Customer Display</button>
+
+            <!-- OMNI-CDISPLAY -->
+            <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:20px 0 8px;"><i class="fa-solid fa-tablet-screen-button"></i> Customer Display App (Android)</h4>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 8px;">The OmniPOS Display app finds this server on your Wi-Fi and mirrors the live cart. Colors follow the active OmniPOS theme.</p>
+            <div class="input-field-group">
+                <label>Display output</label>
+                <select id="adv-customer-display-mode" autocomplete="off">
+                    <option value="window">Second screen on this PC (browser window)</option>
+                    <option value="device">Android Display app only</option>
+                    <option value="both">Both</option>
+                </select>
+            </div>
+            <div class="input-field-group">
+                <label>Display layout</label>
+                <select id="adv-customer-display-layout" autocomplete="off">
+                    <option value="ledger">A · Ledger — items on the left, total panel on the right</option>
+                    <option value="receipt">B · Receipt — greeting on the left, receipt on the right</option>
+                    <option value="hero">C · Hero total — big amount due on top</option>
+                    <option value="spotlight">D · Spotlight — latest scanned item, total bar below</option>
+                </select>
+                <button type="button" class="btn-action-outline" style="margin-top:6px;" onclick="previewCustomerDisplayLayout()"><i class="fa-solid fa-eye"></i> Preview layout</button>
+            </div>
+            <div class="input-field-group">
+                <label>Pairing code (6 digits, required by the Android app)</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="adv-customer-display-pair-code" inputmode="numeric" maxlength="6" pattern="\d{6}" placeholder="123456" autocomplete="off">
+                    <button type="button" class="btn-action-outline" onclick="generateCustomerDisplayPairCode()"><i class="fa-solid fa-shuffle"></i> Generate</button>
+                </div>
+                <small style="color:var(--text-muted); font-size:0.78rem;">Enter this code once in the Android app. Save Advanced Settings after changing it.</small>
+            </div>
 
             <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:20px 0 8px;"><i class="fa-solid fa-plug"></i> Sale Webhook (Integrations)</h4>
             <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 8px;">Sends a POST request with the sale summary (total, cashier, item count) to this URL right after each completed sale.</p>
@@ -5781,9 +5822,10 @@
 <script src="faq-knowledge.js"></script>
 <script src="faq-knowledge.en.js"></script>
 <script src="faq-lang.js?v=20261009-1"></script>
-<script src="faq-engine.js?v=20261020-1"></script>
+<script src="faq-engine.js?v=20261028-2"></script>
 <script src="offline-storage.js?v=20261002-6"></script>
 <script src="bir-wording.js?v=20261021-4"></script>
+<script src="lang.js?v=20261030-2"></script>
 <script>
 /* Sidebar quick find: filters the menu as you type. It only toggles the .sb-hide / .sb-open
    classes, so the real show/hide logic (roles, PRO locks, collapsed groups) is never touched. */
@@ -5803,7 +5845,7 @@
         var clone = el.cloneNode(true);
         var junk = clone.querySelectorAll('.menu-pro-lock,.menu-pro-badge,.lowstock-bell-badge,i');
         for (var i = 0; i < junk.length; i++) junk[i].remove();
-        return (clone.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        var qf = (clone.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase(); if (window.OmniLang && OmniLang.lang !== 'en') { try { qf += ' ' + OmniLang.originalText(el).replace(/\s+/g, ' ').trim().toLowerCase(); } catch (e) {} } return qf;
     }
     function reset() {
         var hid = nav.querySelectorAll('.sb-hide,.sb-open');
@@ -5899,7 +5941,7 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 </script>
-<script src="app.js?v=20261027-4"></script>
+<script src="app.js?v=20261028-4"></script>
 <script src="app1.js?v=20261013-1"></script>
 <script src="marketplace-ui.js?v=20261013-1"></script>
 <script src="daily-digest-ui.js?v=20261027-1"></script>

@@ -611,7 +611,7 @@ function extractToken(req) {
     if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
     return req.headers['x-auth-token'] ||'';
 }
-const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm','/api/health','/api/relay/license-state']);
+const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm','/api/health','/api/relay/license-state','/api/customer-display/ping','/api/customer-display/stream']);
 app.use(async (req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
     if (PUBLIC_API_PATHS.has(req.path)) return next();
@@ -705,6 +705,8 @@ const FILE_INVENTORY_COUNTS = 'inventoryCounts';
 const FILE_CONSIGNMENTS = 'consignments';
 const FILE_WASTE_LOG = 'wasteLog';
 const FILE_SUPPLIERS = 'suppliers';
+// Kasaysayan ng pagbabago ng presyo/cost ng produkto (sino, kailan, magkano ang dati at bago).
+const FILE_PRICE_HISTORY = 'priceHistory';
 
 // BACKUP COMPLETENESS: SQLite modules only exist once they've been written at
 // least once, so a backup taken before a feature was ever used (or one where
@@ -720,7 +722,7 @@ registerModuleDefaults({
     [FILE_CATEGORIES]: DEFAULT_CATEGORIES, [FILE_CARTS]: {}, [FILE_CUSTOMERS]: [], [FILE_DEBTS]: [],
     [FILE_PROMOCODES]: [], [FILE_SHIFTS]: [], [FILE_SHIFT_META]: {}, [FILE_PURCHASE_ORDERS]: [],
     [FILE_LOWSTOCK_TRACKING]: {}, [FILE_STOCK_RETURNS]: [], [FILE_ATTENDANCE]: [],
-    [FILE_INVENTORY_COUNTS]: [], [FILE_CONSIGNMENTS]: [], [FILE_WASTE_LOG]: [], [FILE_SUPPLIERS]: [],
+    [FILE_INVENTORY_COUNTS]: [], [FILE_CONSIGNMENTS]: [], [FILE_WASTE_LOG]: [], [FILE_SUPPLIERS]: [], [FILE_PRICE_HISTORY]: [],
     fraudAlerts: [], loyaltySecurity: {},
     marketplaceLinks: [], marketplaceOrders: [], marketplaceState: {},
     ...Object.fromEntries(birCompliance.BIR_MODULE_NAMES.map((name) => [
@@ -2432,6 +2434,9 @@ const DEFAULT_ADVANCED_SETTINGS = {
     idleAutoLockMinutes: 5,
     customerDisplayEnabled: false,
     customerDisplayCompactThreshold: 8,
+    customerDisplayMode: 'window', // OMNI-CDISPLAY
+    customerDisplayLayout: 'ledger',
+    customerDisplayPairCode: '',
     saleWebhookEnabled: false,
     saleWebhookUrl: '',
     twoFactorLoginEnabled: false,
@@ -2459,6 +2464,9 @@ function getAdvancedSettingsPublic(rawSettings) {
     let compactThreshold = parseInt(s.customerDisplayCompactThreshold, 10);
     if (!Number.isFinite(compactThreshold) || compactThreshold < 3) compactThreshold = DEFAULT_ADVANCED_SETTINGS.customerDisplayCompactThreshold;
     if (compactThreshold > 50) compactThreshold = 50;
+    const cdMode = ['window', 'device', 'both'].includes(s.customerDisplayMode) ? s.customerDisplayMode : 'window';
+    const cdLayout = ['ledger', 'receipt', 'hero', 'spotlight'].includes(s.customerDisplayLayout) ? s.customerDisplayLayout : 'ledger';
+    const cdPair = /^\d{6}$/.test(String(s.customerDisplayPairCode || '')) ? String(s.customerDisplayPairCode) : '';
     const validSensitivities = ['low', 'medium', 'high'];
     let fraudDetectionSensitivity = validSensitivities.includes(s.fraudDetectionSensitivity) ? s.fraudDetectionSensitivity : 'medium';
     let fraudAlertRecipientEmail = typeof s.fraudAlertRecipientEmail === 'string' ? s.fraudAlertRecipientEmail.trim() : '';
@@ -2471,6 +2479,9 @@ function getAdvancedSettingsPublic(rawSettings) {
         idleAutoLockMinutes: minutes,
         customerDisplayEnabled: !!s.customerDisplayEnabled,
         customerDisplayCompactThreshold: compactThreshold,
+        customerDisplayMode: cdMode,
+        customerDisplayLayout: cdLayout,
+        customerDisplayPairCode: cdPair,
         saleWebhookEnabled: !!s.saleWebhookEnabled && !!webhookUrl,
         saleWebhookUrl: webhookUrl,
         twoFactorLoginEnabled: !!s.twoFactorLoginEnabled && !!twoFactorRecipientEmail,
@@ -2517,6 +2528,11 @@ app.post('/api/advanced-settings', requirePermission('advanced_settings_view'), 
     writeData(FILE_ADVANCED_SETTINGS, incoming);
     logAction(username || req.authUser.username, 'Updated Advanced Settings (auto logout/idle auto-lock/customer display/sale webhook/2FA/fraud detection)');
     res.json({ success: true, message: 'Advanced Settings have been updated.', settings: incoming });
+});
+// OMNI-CDISPLAY: Android customer display hub (public ping/stream guarded by pairing code; push needs a logged-in terminal).
+require('./customer-display-hub').register(app, {
+    requirePermission,
+    getSettings: () => getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS))
 });
 // Lightweight revision stamps so every POS terminal / Settings page can notice that another terminal (or an approved
 // request) changed a setting and refresh its cached copy. Only hashes + timestamps are returned, never the values.
@@ -8939,7 +8955,7 @@ const DEMO_SANDBOX_MODULES = [
     FILE_PRODUCTS, FILE_TRANSACTIONS, FILE_REFUNDS, FILE_REQUESTS, FILE_CATEGORIES,
     FILE_CARTS, FILE_CUSTOMERS, FILE_DEBTS, FILE_PROMOCODES, FILE_SHIFTS, FILE_SHIFT_META,
     FILE_PURCHASE_ORDERS, FILE_LOWSTOCK_TRACKING, FILE_STOCK_RETURNS, FILE_ATTENDANCE,
-    FILE_INVENTORY_COUNTS, FILE_CONSIGNMENTS, FILE_WASTE_LOG, FILE_SUPPLIERS, FILE_FRAUD_ALERTS,
+    FILE_INVENTORY_COUNTS, FILE_CONSIGNMENTS, FILE_WASTE_LOG, FILE_SUPPLIERS, FILE_PRICE_HISTORY, FILE_FRAUD_ALERTS,
     // Receipt Order No. counter: sales rung up during Demo Mode are thrown away afterwards, so they must not use up real numbers.
     FILE_ORDER_COUNTER
 ];
@@ -9415,6 +9431,7 @@ function buildAiAssistantSystemPrompt(lang, isAdminRole) {
         'You may also be given a live JSON snapshot of this store\'s actual data (products, sales, users, etc.) as a separate system message — use it ONLY for questions about the store\'s real data (counts, totals, current stock, who has which role, etc.), and only state numbers/facts that are literally present in that snapshot.',
         'That system message may also include a "Pre-computed store insights" block — already-calculated numbers for sales totals (today/yesterday/week/month revenue, transaction counts, day-over-day % change, top products), a cashier sales ranking for this month (topCashierThisMonth/lowestCashierThisMonth/cashierRankingThisMonth), per-cashier shift/Z-Reading cash variance (shifts.byCashier, mostShortCashier, mostOverCashier), inventory status (low stock, out of stock, expiring soon, expired items), a customer loyalty points ranking (topByPoints/lowestByPoints), and unreviewed Fraud Alert counts — plus an optional "suggestedSettings" list. ALWAYS use these pre-computed numbers as-is for that kind of question instead of counting/summing/averaging/ranking the raw records yourself — you are not reliable at exact arithmetic or ranking over long record lists, and this app already computes them correctly elsewhere (the Overview dashboard). Every revenue figure in this block (todayRevenue, yesterdayRevenue, weekRevenue, monthRevenue, cashierRankingThisMonth revenue, topCashierThisMonth/lowestCashierThisMonth revenue) is already NET of refunds — it already matches the "Total Sales"/"Net Sales" headline on the Sales Report page, so never add, subtract, or re-explain a refund adjustment on top of it. The separate todayRefunded/monthRefunded fields are the total amount refunded in that period (a different number from revenue, not something already subtracted a second time), and todayPaymentBreakdown/monthPaymentBreakdown break the net revenue down by payment method (CASH, GCASH, CARD, etc.) when the question is about a specific payment method\'s total. A null "todayVsYesterdayPct" means there were no sales yesterday to compare against — say so plainly rather than inventing a percentage. IMPORTANT distinction: "*Revenue" (todayRevenue/monthRevenue/etc.) is total SALES/BENTA — it is NOT the same thing as "kita"/"profit". When the user asks about "kita", "tubo", "profit", "netong kita", or "how much did we (actually) make/earn", answer using todayProfit/monthProfit (and todayProfitMarginPct/monthProfitMarginPct for the margin %) instead — these already subtract each sold product\'s recorded cost (Cost of Goods Sold) from revenue, matching the Sales Analytics report\'s "Estimated Profit". If todayProfitHasCostData/monthProfitHasCostData is false, that period\'s profit figure is unreliable (little or no product "cost" was ever set in Products) — say so plainly and suggest the user fill in the Cost field per product (Products page) for an accurate profit figure, rather than presenting a 0 or near-0 profit as if it were real. Never call plain revenue "kita"/"profit", and never call profit "benta"/"revenue" — they answer different questions. When asked for the TOTAL COST/VALUE of all products/stock/inventory currently on hand (e.g. "magkano lahat ng product namin", "total cost ng lahat ng produkto", "how much is our inventory worth"), use inventory.totalInventoryCostValue directly (Admin/authorized sessions only) — it is the sum of stock × cost across EVERY product in the store, already computed server-side, NOT just the products included in the snapshot below (that list can be a partial sample for large catalogs, so never add up the "cost"/"price" fields of the individual product records yourself for this kind of question). If inventory.totalInventoryCostValueHasCostData is false, say the figure is unreliable/near-zero because little or no product has a "Cost" set (Products page) rather than presenting it as a real total. If totalInventoryCostValue is missing entirely (non-admin/limited session), say this requires Admin access rather than estimating from the partial product list you can see. IMPORTANT distinction: topProductsThisWeek and topProductsThisMonth are TWO SEPARATE best-selling-by-quantity rankings over DIFFERENT periods — topProductsThisWeek covers only the last 7 days, topProductsThisMonth covers the current calendar month so far — never use one to answer a question about the other\'s period, and never describe topProductsThisWeek\'s numbers as being "this month\'s" top products or vice versa. A negative shift "totalVariance"/"avgVariance" means cash SHORT for that cashier; positive means cash OVER — state this plainly and neutrally (it can have innocent explanations like miscounting) rather than accusing the cashier of wrongdoing. When "suggestedSettings" has entries relevant to the question (or to a problem the user describes), you may mention them as a suggestion — explain what setting to change and why it would help, but always make clear you cannot change it yourself; the user has to do it in Settings.',
         'For questions about billing, subscriptions, backup cost/consumption, or database safety, you may receive a separate "Pre-computed billing/subscription/backup-safety insights" system message (Admin/authorized sessions only). Use it as-is: expiredOrGraceFeatures lists any module or Cloud Backup subscription that is expired or in its grace period; cloudBackup.actualCostShare.yourShare is the REAL, usage-based cost for this store\'s Cloud Backup (not just the flat plan price) — prefer it over planPrice when asked "how much does it actually cost/consume", but always present it as usage cost so far, NEVER as the amount due or the renewal price; each billingSchedule entry\'s amount is the plan price actually due, and for Cloud Backup its usageCostSoFarPHP is the separate usage cost so far; billingSchedule lists upcoming charges with name/amount/dueDate for roughly the next 30 days; estimatedNextMonthTotalPHP is the rough sum of those (all amounts are PHP); databaseSafetyFeatures is a factual list of this app\'s real built-in safeguards — never add safety/security claims beyond what is listed there. If this block is missing entirely for a billing-type question, or actualCostShare/cbCostShare is null, say plainly that the live figure isn\'t available right now rather than estimating one. For a non-admin session, this data is intentionally withheld — tell the user this needs Admin access.',
+        'For questions about whether stock deductions/inventory are accurate, stock that is short or over, or reconciling stock against sales, you may receive a separate \"Pre-computed INVENTORY VARIANCE analysis\" system message (Admin only). Treat it as the only reliable source: report its baseline (and whether the user stated it), the per-product sold/current/expected/variance numbers, and explain any variance ONLY with the evidence it contains. Never accept the user\'s guess about the cause as fact, never invent a cause, and say plainly when the cause cannot be determined from the records. Remember: kiosk orders do not deduct stock until paid through a POS sale, and a sale record deleted by an old BIR test wipe did not restore stock (newer wipes do). It is a records-based check, not a physical count.',
         isAdminRole
             ? 'This user is an Admin/authorized user, so the data snapshot you receive (if any) covers the whole store. You may still only report what is actually present in it — never estimate or invent figures.'
             : 'This user is a regular (non-admin) staff account. The data snapshot you receive (if any) is intentionally LIMITED to catalog-level info. If asked about something outside that scope (other staff\'s data, financial totals, reports, security settings), say that this requires Admin access and suggest asking their Admin/store owner — do not guess.',
@@ -9898,7 +9915,257 @@ async function computeAiBillingInsights(isAdminRole) {
     aiBillingInsightsCache = { ts: now, data };
     return data;
 }
-async function buildAiDatabaseContextMessage(role, question = '') {
+// ---- Omni AI: INVENTORY VARIANCE (stock vs. benta) -------------------------------------------------------
+// Dati, kapag tinanong ang Omni AI kung "accurate ba ang bawas ng stock", wala itong tunay na data para sa
+// reconciliation: ang product record ay may CURRENT stock lang (walang initial/base stock), kaya ginagamit lang
+// ng AI ang numerong sinabi ng user at hinuhulaan ang dahilan ("may order na hindi dumaan sa POS"), na minsan
+// baliktad pa sa totoong nangyayari. Ang server na ang nagko-compute dito mula sa totoong records (transactions,
+// stock returns, user logs, kiosk orders) para ang AI ay magpaliwanag lang ng resulta, hindi manghula.
+const AI_VARIANCE_STRONG_RE = /(variance|reconcil\w*|discrepanc\w*|mismatch|deduct\w*|bawas\w*|kulang|sobra|hindi (po )?(tumutugma|tugma)|di (po )?(tumutugma|tugma)|tugma|nawawala|missing|base[ -]?stocks?|opening stock|initial stock|starting stock|stock (count|check|audit)|audit|(accura\w*|tama|totoo|sakto)[^.?!]{0,60}(stock|inventory|imbentaryo|deduction)|(stock|inventory|imbentaryo|deduction)[^.?!]{0,60}(accura\w*|tama|sakto))/i;
+// Maikling follow-up gaya ng "ikaw na ang mag check" — walang keyword, kaya tinitingnan ang huling tanong ng user.
+const AI_VARIANCE_FOLLOWUP_RE = /^\s*(ikaw na|i-?check mo|check mo|ano (na )?(ang )?(result|resulta)|ibigay (mo )?(sa ?(kin|ken|akin))?|result|resulta|sige|go|ituloy|ulitin|ulit)\b/i;
+function questionNeedsInventoryVariance(question, recentUserText) {
+    const q = String(question || '');
+    if (AI_VARIANCE_STRONG_RE.test(q)) return true;
+    return AI_VARIANCE_FOLLOWUP_RE.test(q) && AI_VARIANCE_STRONG_RE.test(String(recentUserText || ''));
+}
+// Kung sinabi ng user ang base/initial stock ("100 ang base stocks"), iyon ang gagamiting reference.
+function parseAiBaselineFromText(text) {
+    const q = String(text || '');
+    let m = q.match(/(\d{1,7}(?:\.\d+)?)\s*(?:pcs|pieces|piraso)?\s*(?:ang\s*|na\s*)?(?:base|initial|starting|opening)\b/i)
+        || q.match(/\b(?:base|initial|starting|opening)\s*(?:stocks?|inventory)?[^\d\n]{0,24}?(\d{1,7}(?:\.\d+)?)/i);
+    if (!m) return null;
+    const n = parseFloat(m[1]);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+}
+function computeAiInventoryVarianceInsights(question, recentUserText) {
+    const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+    const r3 = (v) => Math.round(v * 1000) / 1000;
+    const products = readData(FILE_PRODUCTS, []);
+    if (!Array.isArray(products) || !products.length) return null;
+    const txs = readData(FILE_TRANSACTIONS, []) || [];
+    const logs = readData(FILE_USERLOGS, []) || [];
+    const returns = readData(FILE_STOCK_RETURNS, []) || [];
+    let kioskOrders = [];
+    try { kioskOrders = readData('kioskOrders', []) || []; } catch (_e) { kioskOrders = []; }
+
+    const keyOf = (code, name) => String(code || name || '').trim().toLowerCase();
+    const rows = new Map();
+    const keyByName = new Map();
+    for (const p of products) {
+        const key = keyOf(p.code, p.name);
+        if (!key || rows.has(key)) continue;
+        rows.set(key, {
+            name: String(p.name || '').trim(), code: p.code ? String(p.code) : null,
+            currentStock: r3(num(p.stock)), unitsSold: 0, voidedUnits: 0, restockedFromReturns: 0, awaitingInspection: 0,
+            kioskDoneNoPosSale: 0, adjustments: [], editsLogged: 0, addedAt: null
+        });
+        keyByName.set(String(p.name || '').trim().toLowerCase(), key);
+    }
+    const findRow = (code, name) => rows.get(keyOf(code, '')) || rows.get(keyByName.get(String(name || '').trim().toLowerCase()));
+    const rowByLoggedName = (name) => rows.get(keyByName.get(String(name || '').trim().toLowerCase()));
+
+    // 1) Benta: base units ng bawat line sa mga transaction na NAKA-RECORD pa.
+    let unknownItemLines = 0;
+    let firstTxAt = null; let lastTxAt = null;
+    const txIds = new Set();
+    for (const t of txs) {
+        if (!t) continue;
+        if (t.id) txIds.add(String(t.id));
+        const at = t.isoDate || null;
+        if (at && (!firstTxAt || at < firstTxAt)) firstTxAt = at;
+        if (at && (!lastTxAt || at > lastTxAt)) lastTxAt = at;
+        for (const it of (Array.isArray(t.items) ? t.items : [])) {
+            const row = findRow(it.code, it.name);
+            if (!row) { unknownItemLines++; continue; }
+            let q = parseFloat(it.baseQty);
+            if (!Number.isFinite(q) || q <= 0) q = num(it.quantity) * (num(it.factor) || 1);
+            row.unitsSold += q;
+        }
+    }
+    // 2) Void/Refund: ang VOID ay BINUBURA ang transaction pero ang stock ay bumabalik lang kapag na-inspect at na-restock.
+    const voidedTxIds = new Set();
+    for (const ret of returns) {
+        if (!ret) continue;
+        if (ret.transactionId) voidedTxIds.add(String(ret.transactionId));
+        for (const it of (Array.isArray(ret.items) ? ret.items : [])) {
+            const row = findRow(it.code, it.name);
+            if (!row) continue;
+            const f = num(it.factor) || 1;
+            const q = num(it.quantity) * f;
+            const back = num(it.restockedQty) * f;
+            const dmg = num(it.damagedQty) * f;
+            if (ret.sourceType === 'void') row.voidedUnits += q;
+            row.restockedFromReturns += back;
+            if (ret.status === 'pending_inspection') row.awaitingInspection += Math.max(0, q - back - dmg);
+        }
+    }
+    // 3) Logs: mga galaw ng stock na walang transaction (restock, batch, transfer), product edits, at benta na nawala ang record.
+    const logTime = (l) => { const ms = Number(l && l.id); return Number.isFinite(ms) && ms > 1e12 ? ms : null; };
+    const logIso = (l) => { const ms = logTime(l); return ms ? new Date(ms).toISOString() : String((l && l.timestamp) || ''); };
+    let oldestLogMs = null; let newestLogMs = null;
+    const processedSaleLogs = [];
+    const wipes = [];
+    const wipeRestoreLogMs = [];
+    const otherMovements = { quickRestocks: 0, batchLots: 0, branchTransfers: 0, offlineShortSales: 0 };
+    for (const l of logs) {
+        if (!l || typeof l.action !== 'string') continue;
+        const ms = logTime(l);
+        if (ms) { if (oldestLogMs === null || ms < oldestLogMs) oldestLogMs = ms; if (newestLogMs === null || ms > newestLogMs) newestLogMs = ms; }
+        const a = l.action;
+        let m;
+        if ((m = a.match(/^Processed sale transaction: (\S+)/))) { processedSaleLogs.push({ id: m[1], ms, at: logIso(l) }); continue; }
+        if ((m = a.match(/^VOIDED Transaction ID: (\S+)/))) { voidedTxIds.add(m[1]); continue; }
+        if (/BIR TEST WIPE/.test(a) && (m = a.match(/\((\d+) BIR sale\(s\) removed/))) { wipes.push({ at: logIso(l), ms, salesRemoved: parseInt(m[1], 10) || 0 }); continue; }
+        if (/^BIR TEST WIPE stock restore:/.test(a)) { if (ms) wipeRestoreLogMs.push(ms); continue; }
+        if ((m = a.match(/^Quick-restocked "(.+?)" \(\+([\d.]+)/))) {
+            otherMovements.quickRestocks++;
+            const row = rowByLoggedName(m[1]); if (row) row.adjustments.push({ at: logIso(l), type: 'quick_restock', qty: +m[2] });
+            continue;
+        }
+        if ((m = a.match(/^Added new batch\/lot for "(.+?)" .*?\+([\d.]+)/))) {
+            otherMovements.batchLots++;
+            const row = rowByLoggedName(m[1]); if (row) row.adjustments.push({ at: logIso(l), type: 'batch_lot', qty: +m[2] });
+            continue;
+        }
+        if ((m = a.match(/^Branch transfer (OUT|IN): ([+-]?[\d.]+) "(.+?)"/))) {
+            otherMovements.branchTransfers++;
+            const row = rowByLoggedName(m[3]); if (row) row.adjustments.push({ at: logIso(l), type: 'branch_transfer_' + m[1].toLowerCase(), qty: m[1] === 'OUT' ? -Math.abs(+m[2]) : Math.abs(+m[2]) });
+            continue;
+        }
+        if (/^Offline sale \S+ was recorded even though stock was short/.test(a)) { otherMovements.offlineShortSales++; continue; }
+        if ((m = a.match(/^Added new product: (.+)$/))) { const row = rowByLoggedName(m[1].trim()); if (row && !row.addedAt) row.addedAt = logIso(l); continue; }
+        if ((m = a.match(/^Updated product code: (.+)$/))) {
+            const row = rows.get(keyOf(m[1].trim(), '')) || rowByLoggedName(m[1].trim()); if (row) row.editsLogged++;
+            continue;
+        }
+    }
+    // Ang wipe na may kasunod na "stock restore" log ay nagbalik na ng stock (bagong behavior); ang luma ay hindi.
+    for (const w of wipes) w.stockRestored = !!(w.ms && wipeRestoreLogMs.some(x => x >= w.ms && x - w.ms <= 60 * 1000));
+    // Benta na NAKA-LOG pero wala na ang transaction record (hindi void) — hal. binura ng BIR test wipe.
+    const missingSales = [];
+    for (const s of processedSaleLogs) {
+        if (txIds.has(s.id) || voidedTxIds.has(s.id)) continue;
+        const wipe = s.ms ? wipes.find(w => w.ms && w.ms >= s.ms && w.ms - s.ms <= 10 * 60 * 1000) : null;
+        missingSales.push({
+            transactionId: s.id, loggedAt: s.at, itemsKnown: false,
+            likelyCause: wipe ? (`BIR test wipe at ${wipe.at} removed ${wipe.salesRemoved} sale record(s) shortly after this sale` + (wipe.stockRestored ? '; the stock of removed sales was restored automatically by that wipe, so it is NOT a cause of variance' : '; that wipe did NOT restore stock, so the units it deducted stay missing')) : 'sale record no longer exists and it was not a void (cause not recorded)'
+        });
+    }
+    // 4) Kiosk: ang kiosk order ay NAG-RE-RESERVE lang; ang POS sale lang ang bumabawas ng tunay na stock.
+    const kioskPaidIds = new Set(txs.filter(t => t && t.kioskOrderId).map(t => String(t.kioskOrderId)));
+    const kiosk = { doneWithoutPosSaleOrders: 0, cancelledOrders: 0, openOrdersWaitingForPayment: 0, doneWithoutPosSaleIds: [] };
+    for (const o of kioskOrders) {
+        if (!o) continue;
+        const paid = !!o.txId || kioskPaidIds.has(String(o.id));
+        if (o.status === 'cancelled') { kiosk.cancelledOrders++; continue; }
+        if (!paid && o.status === 'done') {
+            kiosk.doneWithoutPosSaleOrders++;
+            if (kiosk.doneWithoutPosSaleIds.length < 25) kiosk.doneWithoutPosSaleIds.push(String(o.id));
+            for (const it of (Array.isArray(o.items) ? o.items : [])) {
+                const row = findRow(it.code, it.name); if (!row) continue;
+                let q = parseFloat(it.baseQty); if (!Number.isFinite(q) || q <= 0) q = num(it.qty != null ? it.qty : it.quantity) * (num(it.factor) || 1);
+                row.kioskDoneNoPosSale += q;
+            }
+        } else if (!paid) kiosk.openOrdersWaitingForPayment++;
+    }
+    // 5) Reference/baseline at variance bawat product.
+    const list = [];
+    for (const row of rows.values()) {
+        const netOut = row.unitsSold + row.voidedUnits - row.restockedFromReturns;
+        list.push({ row, netOut, impliedStart: r3(row.currentStock + netOut) });
+    }
+    let baseline = parseAiBaselineFromText(question);
+    let baselineSource = baseline !== null ? 'stated_by_user' : null;
+    if (baseline === null) baseline = parseAiBaselineFromText(recentUserText), baselineSource = baseline !== null ? 'stated_by_user' : null;
+    if (baseline === null) {
+        const freq = new Map();
+        for (const x of list) freq.set(x.impliedStart, (freq.get(x.impliedStart) || 0) + 1);
+        let best = null;
+        for (const [v, c] of freq) if (c >= 2 && (!best || c > best.c)) best = { v, c };
+        if (best) { baseline = best.v; baselineSource = `most_common_implied_starting_stock (${best.c} of ${list.length} products agree)`; }
+    }
+    const out = list.map(({ row, netOut, impliedStart }) => {
+        const expectedStock = baseline === null ? null : r3(baseline - netOut);
+        const variance = expectedStock === null ? null : r3(row.currentStock - expectedStock);
+        const item = {
+            name: row.name, code: row.code, currentStock: row.currentStock, unitsSold: r3(row.unitsSold),
+            voidedUnits: r3(row.voidedUnits), restockedFromReturns: r3(row.restockedFromReturns),
+            impliedStartingStock: impliedStart, expectedStock, variance,
+            status: variance === null ? 'no_baseline' : (Math.abs(variance) < 1e-6 ? 'ok' : (variance < 0 ? 'short (system stock lower than expected)' : 'over (system stock higher than expected)'))
+        };
+        if (row.awaitingInspection) item.returnsAwaitingInspection = r3(row.awaitingInspection);
+        if (row.kioskDoneNoPosSale) item.kioskDoneWithoutPosSaleUnits = r3(row.kioskDoneNoPosSale);
+        if (row.adjustments.length) item.loggedAdjustments = row.adjustments.slice(-5);
+        if (row.editsLogged) item.productEditsLogged = row.editsLogged;
+        if (row.addedAt) item.productAddedAt = row.addedAt;
+        return item;
+    });
+    out.sort((a, b) => (Math.abs(b.variance || 0) - Math.abs(a.variance || 0)) || a.name.localeCompare(b.name));
+    const withVariance = out.filter(x => x.variance !== null && Math.abs(x.variance) >= 1e-6);
+    // Aling product na may "short" na variance ang POSIBLENG kasama sa nawalang sale (dapat existing na ang product noon).
+    for (const ms of missingSales) {
+        ms.shortProductsThatExistedThen = out.filter(x => x.variance !== null && x.variance < 0 && (!x.productAddedAt || x.productAddedAt <= ms.loggedAt)).map(x => x.name);
+    }
+    const MAX_PRODUCTS = 40;
+    const caveats = [
+        'Only transactions that still exist are counted. Voided sales are counted through the stock-return records (stock returns only after inspection/restock).',
+        'Stock deducted by a sale whose record was later deleted by an OLD BIR test wipe (before the stock-restore fix) was not restored, so it shows up as a short variance. Newer wipes restore stock automatically (see birTestWipes.stockRestoredByWipe).',
+        'Kiosk orders only reserve stock; they do not deduct it until paid through a POS sale. A kiosk order marked done with no POS sale deducted nothing and recorded no revenue — if that food/item was actually handed over, the physical stock is lower than the system stock.',
+        'Product edits ("Updated product code") are logged without old/new stock, so a manual stock change through the product form cannot be audited.',
+        'The record has no true opening stock: the baseline is either the number the user stated or the most common implied starting stock. Say which one you used.'
+    ];
+    return {
+        generatedAt: new Date().toISOString(),
+        formula: 'expectedStock = baseline - unitsSold(existing transactions) - voidedUnits + restockedFromReturns; variance = currentStock - expectedStock (negative = short)',
+        baseline: { value: baseline, source: baselineSource || 'none (ask the user for the starting stock)' },
+        coverage: {
+            productsChecked: out.length, transactionsCounted: txs.length, firstTransactionAt: firstTxAt, lastTransactionAt: lastTxAt,
+            userLogsAvailable: logs.length, oldestLogAt: oldestLogMs ? new Date(oldestLogMs).toISOString() : null,
+            unmatchedTransactionItemLines: unknownItemLines
+        },
+        summary: {
+            productsWithVariance: withVariance.length,
+            totalShortUnits: r3(withVariance.filter(x => x.variance < 0).reduce((s, x) => s + Math.abs(x.variance), 0)),
+            totalOverUnits: r3(withVariance.filter(x => x.variance > 0).reduce((s, x) => s + x.variance, 0))
+        },
+        products: out.slice(0, MAX_PRODUCTS),
+        productsNotListed: Math.max(0, out.length - MAX_PRODUCTS),
+        evidence: {
+            salesLoggedButTransactionRecordMissing: missingSales.slice(0, 15),
+            birTestWipes: wipes.slice(0, 10).map(w => ({ at: w.at, salesRemoved: w.salesRemoved, stockRestoredByWipe: w.stockRestored })),
+            kioskOrders: kiosk,
+            otherStockMovementsInLogs: otherMovements
+        },
+        caveats
+    };
+}
+function buildAiInventoryVarianceMessage(role, question, recentUserText) {
+    if (!questionNeedsInventoryVariance(question, recentUserText)) return null;
+    if ((role || '').toLowerCase() !== 'admin') {
+        return { role: 'system', content: 'The user is asking to check/reconcile inventory stock against sales. This reconciliation is Admin-only. This is a regular (non-admin) session — say plainly that it requires Admin access and suggest asking their Admin/store owner. Do not guess any numbers.' };
+    }
+    const data = computeAiInventoryVarianceInsights(question, recentUserText);
+    if (!data) return null;
+    return {
+        role: 'system',
+        content: `Pre-computed INVENTORY VARIANCE analysis (JSON — already-correct, computed by the server from the real transactions, stock-return records, user logs and kiosk orders; generated ${data.generatedAt}):\n${JSON.stringify(data)}\n\nHow to use it: this is the ONLY reliable source for "is the stock deduction accurate / why is the stock short or over". Never recompute it. (1) State the baseline you used and where it came from (data.baseline.source). (2) For each product with a variance, give: units sold, current stock, expected stock, variance. If all products match, say the deductions are accurate. (3) Explain a variance ONLY with evidence present in data.evidence or data.products (salesLoggedButTransactionRecordMissing, birTestWipes, kioskOrders, loggedAdjustments, returnsAwaitingInspection, productEditsLogged). If none applies, say the cause cannot be determined from the records and name what to check — never invent a cause and never just agree with the user's guess. (4) Be explicit that kiosk orders do not deduct stock until paid via POS and that a sale record deleted by an OLD BIR test wipe did not restore stock (newer wipes restore it automatically). (5) Say it is a records-based check, not a physical count, and suggest a physical count for any product with a variance. Keep it short and plain text.`
+    };
+}
+async function buildAiDatabaseContextMessage(role, question = '', recentUserText = '') {
+    const base = await buildAiDatabaseContextMessageBase(role, question);
+    let extra = null;
+    try {
+        extra = buildAiInventoryVarianceMessage(role, question, recentUserText);
+    } catch (err) {
+        console.error('⚠️ Hindi na-compute ang Omni AI inventory variance:', err);
+    }
+    if (!extra) return base;
+    const baseArr = base ? (Array.isArray(base) ? base : [base]) : [];
+    return [...baseArr, extra];
+}
+
+async function buildAiDatabaseContextMessageBase(role, question = '') {
     const isAdminRole = (role || '').toLowerCase() === 'admin';
     let snapshot;
     try {
@@ -10213,7 +10480,7 @@ function logAiAssistantInteraction(entry) {
 // BAGO: heuristic kung ang tanong ay tungkol sa aktwal na store data
 // (hindi lang "paano gamitin"), para ang "Live data" badge sa chat ay
 // lumabas lang kapag talagang relevant — at hindi sa bawat sagot.
-const AI_LIVE_DATA_QUESTION_RE = /\b(how many|how much|total|today|yesterday|this (week|month)|top|lowest|highest|low stock|out of stock|expir\w*|sales?|revenue|profit|ilan|magkano|benta|kita|kahapon|buwan|linggo|natitira|utang|pinakamataas|pinakamababa)\b/i;
+const AI_LIVE_DATA_QUESTION_RE = /\b(how many|how much|total|today|yesterday|this (week|month)|top|lowest|highest|low stock|out of stock|expir\w*|sales?|revenue|profit|ilan|magkano|benta|kita|kahapon|buwan|linggo|natitira|utang|pinakamataas|pinakamababa|variance|reconcil\w*|discrepanc\w*|mismatch|deduct\w*|bawas\w*|kulang|sobra|tugma|accura\w*|stocks?|inventory|imbentaryo)\b/i;
 // Ang mga "how-to" na tanong ay sinasagot mula sa FAQ, hindi sa live data,
 // kahit may salitang gaya ng "sales" o "stock" sa loob nito.
 const AI_HOWTO_QUESTION_RE = /^\s*(how (do|to|can|does)|paano|pano|what is|what does|ano ang|ano po ang|saan)\b/i;
@@ -10628,7 +10895,8 @@ app.post('/api/ai-assistant/ask', requireAiAssistantOrFree(), rateLimit('ai-assi
     const diagnosticMsg = buildDiagnosticSystemMessage(req.body?.diagnostics, req.body?.clientErrors);
     const userRole = req.authUser && req.authUser.role;
     const isAdminRole = (userRole || '').toLowerCase() === 'admin';
-    const dbContextMsg = await buildAiDatabaseContextMessage(userRole, question);
+    const recentUserText = history.filter(h => h.role === 'user').slice(-3).map(h => h.content).join(' ');
+    const dbContextMsg = await buildAiDatabaseContextMessage(userRole, question, recentUserText);
     const dbContextMsgs = dbContextMsg ? (Array.isArray(dbContextMsg) ? dbContextMsg : [dbContextMsg]) : [];
     // BAGO: kapag ang tanong ay tungkol sa premium feature na hindi pa nabibili
     // sa store na ito, sabihan ang AI na magdagdag ng maikling paalala (ang
@@ -13737,6 +14005,19 @@ app.post('/api/products/deduct', (req, res) => {
         message:'Tinanggal na ang endpoint na ito dahil sa security review — pwede itong dating gamitin ng kahit sinong naka-login para baguhin ang stock nang walang permission check at walang audit trail. Gamitin ang /api/transactions para sa checkout/sale.'
     });
 });
+app.get('/api/products/:code/price-history', requirePermission('products'), (req, res) => {
+    try {
+        const key = normalizeProductCodeKey(req.params.code);
+        const all = readData(FILE_PRICE_HISTORY, []);
+        const rows = (Array.isArray(all) ? all : [])
+            .filter(e => e && normalizeProductCodeKey(e.code) === key)
+            .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+            .slice(0, 100);
+        res.json({ success: true, history: rows });
+    } catch (e) {
+        res.status(500).json({ success: false, message: 'Could not load the price history.' });
+    }
+});
 app.put('/api/products/:code', requirePermission('products'), async (req, res) => {
     // AYOS/BUGFIX: parehong dahilan gaya ng quick-restock/PO-receive sa itaas —
     // ang general na "edit product" form ay pwede ring direktang magbago ng
@@ -13770,6 +14051,7 @@ function processProductUpdate(req, res) {
         if (!products.some(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code))) {
             return res.status(404).json({ success: false, message: 'Product not found.' });
         }
+        recordPriceHistory(products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code)), updatedData, username, 'edit');
         products = products.map(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(code) ? mergeProductUpdate(p, updatedData) : p);
         const freePagesBeforeEdit = getDbFreePages();
         writeData(FILE_PRODUCTS, products);
@@ -14710,6 +14992,7 @@ function processRequestResolve(req, res) {
                 if (!products.some(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(targetReq.targetCode))) {
                     return res.status(404).json({ success: false, message: 'The product for this UPDATE request no longer exists. Reject the request instead.' });
                 }
+                recordPriceHistory(products.find(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(targetReq.targetCode)), targetReq.data, targetReq.requester || username, 'approved request');
                 products = products.map(p => normalizeProductCodeKey(p.code) === normalizeProductCodeKey(targetReq.targetCode) ? mergeProductUpdate(p, targetReq.data) : p);
                 logAction(username, `APPROVED UPDATE Request for code: ${targetReq.targetCode}`);
             }
@@ -17652,6 +17935,7 @@ app.post('/api/system/reset/start', rateLimit('system-reset', 3, 30 * 60 * 1000,
                     { module: FILE_CONSIGNMENTS, data: [] },
                     { module: FILE_WASTE_LOG, data: [] },
                     { module: FILE_SUPPLIERS, data: [] },
+                    { module: FILE_PRICE_HISTORY, data: [] },
                     { module: 'marketplaceLinks', data: [] },
                     { module: 'marketplaceOrders', data: [] },
                     { module: 'marketplaceState', data: { settings: mpPrev.settings || undefined, cursors: {}, connections: [], lastSync: null, resetAt: Date.now() } },
@@ -18206,6 +18490,37 @@ function validateIncomingStock(data) {
 //  * If the client also sends `stockBaseline` (the stock value the form was loaded with), only the CHANGE the
 //    user typed (stock - stockBaseline) is applied on top of the CURRENT server stock. Without this, merely
 //    saving a price/name edit re-wrote the stale stock shown in the form and wiped out sales made meanwhile.
+// Itinatala ang pagbabago ng price/cost (hindi nagre-record kapag pareho ang value). Hindi kailanman nagba-block ng pag-save ng produkto.
+function recordPriceHistory(existing, updates, actor, source) {
+    try {
+        if (!existing || !updates || typeof updates !== 'object') return;
+        const entries = [];
+        for (const field of ['price', 'cost']) {
+            if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
+            const after = Number(updates[field]);
+            if (!Number.isFinite(after) || after < 0) continue;
+            const beforeRaw = Number(existing[field]);
+            const before = Number.isFinite(beforeRaw) ? beforeRaw : 0;
+            if (Math.abs(after - before) < 0.0001) continue;
+            entries.push({
+                id: 'PH-' + Date.now() + '-' + crypto.randomBytes(3).toString('hex'),
+                code: String(existing.code == null ? '' : existing.code),
+                name: String(existing.name || ''),
+                field, from: before, to: after,
+                by: String(actor || ''), source: String(source || 'edit'),
+                at: new Date().toISOString()
+            });
+        }
+        if (!entries.length) return;
+        let all = readData(FILE_PRICE_HISTORY, []);
+        if (!Array.isArray(all)) all = [];
+        all.push(...entries);
+        if (all.length > 20000) all = all.slice(all.length - 20000);
+        writeData(FILE_PRICE_HISTORY, all);
+    } catch (e) {
+        console.error('recordPriceHistory failed:', e && e.message);
+    }
+}
 function mergeProductUpdate(existing, updates) {
     const u = { ...(updates || {}) };
     const hasStock = Object.prototype.hasOwnProperty.call(u, 'stock');
@@ -22977,6 +23292,54 @@ function listBirTransactionRowIds() {
     }
     return ids;
 }
+
+// Mga BIR sale row KASAMA ang laman (kailangan para maibalik ang stock ng mga buburahing benta).
+function listBirTransactionRowsForWipe() {
+    const rows = sqliteDb.prepare('SELECT record_id, data FROM row_store WHERE module = ?').all(FILE_TRANSACTIONS);
+    const out = [];
+    for (const r of rows) {
+        let tx = null;
+        try { tx = JSON.parse(r.data); } catch (_e) { tx = null; }
+        if (birRetention.isBirTransaction(tx)) out.push({ rowId: String(r.record_id), tx });
+    }
+    return out;
+}
+// BAGO: ang BIR test wipe ay BINUBURA ang mga benta na parang hindi nangyari, pero dati HINDI ibinabalik ang stock
+// na ibinawas ng mga bentang iyon — kaya "kulang" ang stock ng product (variance) pagkatapos ng wipe. Ngayon, ibinabalik
+// ang stock ng bawat buburahing benta (sa parehong lot/expiry kung may batch, gamit ang parehong helper ng void/stock-return).
+// Hindi ginagalaw (at nililista lang) ang benta na: may refund o stock-return record na (hawak na ng return flow ang stock
+// nito — madodoble kapag ibinalik pa rito), may stockShortfall (hindi alam ang aktwal na ibinawas), o ang product ay wala na
+// sa catalog. In-place ang pagbabago sa `products` (ang tumatawag ang magsusulat nito sa parehong database transaction).
+function computeBirWipeStockRestore(birRows, products, linkedTxIds) {
+    const result = { restoredSales: 0, restoredUnits: 0, perProduct: {}, skippedSales: [], skippedLines: [], productsChanged: false };
+    const byCode = new Map((Array.isArray(products) ? products : []).map(p => [String(p && p.code || '').trim().toLowerCase(), p]));
+    for (const row of birRows) {
+        const tx = row && row.tx;
+        if (!tx || !Array.isArray(tx.items) || !tx.items.length) continue;
+        const id = String(tx.id || row.rowId);
+        const refunded = (tx.refundStatus && tx.refundStatus !== 'none') || (parseFloat(tx.totalRefunded) || 0) > 0;
+        if (refunded || linkedTxIds.has(id)) { result.skippedSales.push({ id, reason: 'has a refund / stock-return record (stock is handled by the return flow)' }); continue; }
+        if (Array.isArray(tx.stockShortfall) && tx.stockShortfall.length) { result.skippedSales.push({ id, reason: 'sale was recorded with a stock shortfall (actual deduction unknown)' }); continue; }
+        let restoredAny = false;
+        for (const item of tx.items) {
+            const prod = byCode.get(String(item && item.code || '').trim().toLowerCase());
+            if (!prod) { result.skippedLines.push({ id, code: item && item.code, reason: 'product no longer in the catalog' }); continue; }
+            const sellQty = toQty3(item.quantity);
+            if (!(sellQty > 0)) continue;
+            const plan = planReturnRestock(item, sellQty, 0);
+            if (!plan.length) continue;
+            applyRestockPlan(prod, plan);
+            const base = plan.reduce((s, step) => s + (parseFloat(step.qty) || 0), 0);
+            const key = String(prod.name || prod.code);
+            result.perProduct[key] = uomPricing.round((result.perProduct[key] || 0) + base, uomPricing.DECIMAL_PLACES);
+            result.restoredUnits = uomPricing.round(result.restoredUnits + base, uomPricing.DECIMAL_PLACES);
+            result.productsChanged = true;
+            restoredAny = true;
+        }
+        if (restoredAny) result.restoredSales++;
+    }
+    return result;
+}
 // Nagtatanong ang app (Admin na naka-login) kada ~20s. Hindi tumatawag sa RELAY kapag wala ang flag file o naka-lock ang BIR.
 app.get('/api/bir/test-wipe/pending', async (req, res) => {
     const none = { success: true, pending: false };
@@ -23016,24 +23379,47 @@ app.post('/api/bir/test-wipe/confirm', async (req, res) => {
     if (!cmd || cmd.commandId !== String(body.commandId || '')) {
         return res.status(409).json({ success: false, code: 'BIR_TEST_WIPE_COMMAND_GONE', message: 'The wipe command is no longer valid (cancelled, expired or already used). Nothing was changed.' });
     }
-    let birSaleIds;
-    try { birSaleIds = listBirTransactionRowIds(); } catch (err) {
-        return res.status(500).json({ success: false, message: `Could not read the sales records: ${err.message}` });
-    }
-    const nowIso = new Date().toISOString();
-    const changes = [
-        { module: 'birState', data: { agt: 0, baselineAGT: 0, resetCounter: 0, zCounter: 0, nextInvoiceNumber: 1, invoiceNumberAtPeriodStart: 1, lastZReadingAt: null, lastResetAt: null, createdAt: nowIso } },
-        { module: 'birVoids', data: [] },
-        { module: 'birZReadingHistory', data: [] },
-        { module: 'birResetHistory', data: [] }
-    ];
-    if (birSaleIds.length) changes.push({ module: FILE_TRANSACTIONS, deleteRowIds: birSaleIds });
-    try {
-        runDatabaseTransaction(changes); // isang transaction: lahat o wala
-    } catch (err) {
-        console.error('BIR test wipe failed (database untouched):', err);
-        return res.status(500).json({ success: false, message: `The BIR data could not be wiped. Nothing was changed. Details: ${err.message}` });
-    }
+    // Naka-lock sa parehong mutex ng benta/void para walang pumasok na sale sa pagitan ng pagbasa ng stock at ng pagsulat nito.
+    const wipeOutcome = await transactionsMutexRunExclusive(async () => {
+        let birRows;
+        try { birRows = listBirTransactionRowsForWipe(); } catch (err) {
+            return { ok: false, status: 500, body: { success: false, message: `Could not read the sales records: ${err.message}` } };
+        }
+        const birSaleIds = birRows.map(r => r.rowId);
+        const nowIso = new Date().toISOString();
+        const changes = [
+            { module: 'birState', data: { agt: 0, baselineAGT: 0, resetCounter: 0, zCounter: 0, nextInvoiceNumber: 1, invoiceNumberAtPeriodStart: 1, lastZReadingAt: null, lastResetAt: null, createdAt: nowIso } },
+            { module: 'birVoids', data: [] },
+            { module: 'birZReadingHistory', data: [] },
+            { module: 'birResetHistory', data: [] }
+        ];
+        // Ibalik ang stock ng mga buburahing benta (sa parehong database transaction: lahat o wala).
+        let stockRestore = { restoredSales: 0, restoredUnits: 0, perProduct: {}, skippedSales: [], skippedLines: [], productsChanged: false };
+        try {
+            if (birRows.length) {
+                const linkedTxIds = new Set();
+                for (const r of (readData(FILE_STOCK_RETURNS, []) || [])) if (r && r.transactionId) linkedTxIds.add(String(r.transactionId));
+                for (const r of (readData(FILE_REFUNDS, []) || [])) if (r && r.transactionId) linkedTxIds.add(String(r.transactionId));
+                const productsForRestore = readProductsNoImages([]);
+                stockRestore = computeBirWipeStockRestore(birRows, productsForRestore, linkedTxIds);
+                if (stockRestore.productsChanged) changes.push({ module: FILE_PRODUCTS, data: productsForRestore });
+            }
+        } catch (err) {
+            console.error('BIR test wipe: stock restore could not be computed (database untouched):', err);
+            return { ok: false, status: 500, body: { success: false, message: `The BIR data could not be wiped because the stock of the removed sales could not be restored. Nothing was changed. Details: ${err.message}` } };
+        }
+        if (birSaleIds.length) changes.push({ module: FILE_TRANSACTIONS, deleteRowIds: birSaleIds });
+        try {
+            runDatabaseTransaction(changes); // isang transaction: lahat o wala
+        } catch (err) {
+            console.error('BIR test wipe failed (database untouched):', err);
+            return { ok: false, status: 500, body: { success: false, message: `The BIR data could not be wiped. Nothing was changed. Details: ${err.message}` } };
+        }
+        return { ok: true, birSaleIds, stockRestore };
+    });
+    if (!wipeOutcome.ok) return res.status(wipeOutcome.status).json(wipeOutcome.body);
+    const birSaleIds = wipeOutcome.birSaleIds;
+    const stockRestore = wipeOutcome.stockRestore;
     markBirTestWipeHandled(cmd.commandId, 'done'); // isang beses lang magagamit ang command
     birTestWipePendingCache = { at: 0, command: null };
     let vaultCleared = true;
@@ -23046,11 +23432,15 @@ app.post('/api/bir/test-wipe/confirm', async (req, res) => {
         console.error('BIR test wipe: could not remove the retention vault:', err);
     }
     logAction(req.authUser.username, `BIR TEST WIPE (RELAY command ${cmd.commandId}, ref: ${cmd.reference}): all BIR data zeroed (${birSaleIds.length} BIR sale(s) removed, retention vault ${vaultCleared ? 'deleted' : 'NOT fully deleted'}).`);
+    try {
+        const perProductText = Object.keys(stockRestore.perProduct).slice(0, 12).map(k => `${k} +${stockRestore.perProduct[k]}`).join(', ');
+        logAction(req.authUser.username, `BIR TEST WIPE stock restore: ${stockRestore.restoredUnits} unit(s) from ${stockRestore.restoredSales} removed sale(s) returned to stock${perProductText ? ' (' + perProductText + ')' : ''}; ${stockRestore.skippedSales.length} sale(s) and ${stockRestore.skippedLines.length} line(s) not restored${stockRestore.skippedSales.length ? ' [' + stockRestore.skippedSales.slice(0, 5).map(s => s.id).join(', ') + ']' : ''}.`);
+    } catch (_logErr) { /* logging lang; hindi dapat pumigil sa wipe */ }
     await ackBirTestWipeToRelay(cmd.commandId, 'done');
     if (!vaultCleared) {
         return res.status(500).json({ success: false, partial: true, message: `BIR data in the database was wiped, but the retention vault folder could not be deleted (${vaultError}). Delete the bir-retention-vault folder by hand.` });
     }
-    res.json({ success: true, removed: { birSales: birSaleIds.length, vaultDeleted: true } });
+    res.json({ success: true, removed: { birSales: birSaleIds.length, vaultDeleted: true }, stockRestored: { units: stockRestore.restoredUnits, sales: stockRestore.restoredSales, skippedSales: stockRestore.skippedSales, skippedLines: stockRestore.skippedLines } });
 });
 app.get('/api/bir/reset-history', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
     res.json(birCompliance.getResetHistory());
