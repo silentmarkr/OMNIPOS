@@ -62,7 +62,7 @@
   } catch (e) {}
 })();
 
-const CACHE_VERSION = 'omnipos-shell-v135';
+const CACHE_VERSION = 'omnipos-shell-v136';
 
 // A weak store Wi-Fi must never freeze the POS: if the network does not answer within this time and a cached copy
 // exists, the cached copy is used right away and the cache is refreshed in the background when the network replies.
@@ -165,6 +165,8 @@ self.addEventListener('fetch', event => {
 
   // API responses must never be served stale by the service worker.
   if (url.pathname.startsWith('/api/')) return;
+  // Downloaded language packs are served fresh by the server; lang.js keeps its own offline copy.
+  if (url.pathname.startsWith('/lang-dl/')) return;
 
   if (req.mode === 'navigate') {
     const isRoot = url.pathname === '/' || url.pathname === '/index.html';

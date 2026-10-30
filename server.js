@@ -2391,6 +2391,121 @@ function getUxSettingsPublic(rawSettings) {
         updatedAt: s.updatedAt || null
     };
 }
+// ---------------------------------------------------------------------------------------------------------------
+// LANGUAGE PACKS (display-only translations)
+// Packs are plain JSON data. They are downloaded from RELAY, rebuilt through validateLangPack() (known fields only,
+// bounded sizes, safe patterns) and stored in database/lang-packs. They never touch POS data or business logic;
+// if a pack is missing or broken the UI simply stays in English.
+// ---------------------------------------------------------------------------------------------------------------
+const { validateLangPack, LANG_CODE_RE } = require('./lang-pack-validate');
+const LANG_PACK_DIR = path.join(DB_DIR, 'lang-packs');
+const LANG_PACK_MAX_BYTES = 3 * 1024 * 1024;
+let langRemoteCache = { at: 0, packs: [] };
+
+function readInstalledLangPack(code) {
+    if (!LANG_CODE_RE.test(code)) return null;
+    try {
+        const raw = fs.readFileSync(path.join(LANG_PACK_DIR, code + '.json'), 'utf8');
+        const checked = validateLangPack(JSON.parse(raw), code);
+        return checked.ok ? checked : null;
+    } catch (e) {
+        return null;
+    }
+}
+function listInstalledLangPacks() {
+    let files = [];
+    try { files = fs.readdirSync(LANG_PACK_DIR); } catch (e) { return []; }
+    const out = [];
+    for (const f of files) {
+        const m = /^([a-z0-9-]+)\.json$/.exec(f);
+        if (!m) continue;
+        const checked = readInstalledLangPack(m[1]);
+        if (checked) out.push({ code: m[1], name: checked.pack.name, native: checked.pack.native, version: checked.pack.version, count: checked.count });
+    }
+    return out.sort((a, b) => a.code.localeCompare(b.code));
+}
+
+// Public (no login needed, it is only display data): the login screen and the UI must be able to load the chosen language.
+app.get('/lang-dl/index.json', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({ packs: listInstalledLangPacks() });
+});
+app.get('/lang-dl/:file', (req, res) => {
+    const m = /^([a-z0-9-]+)\.json$/.exec(String(req.params.file || ''));
+    const checked = m ? readInstalledLangPack(m[1]) : null;
+    if (!checked) return res.status(404).json({ success: false, message: 'Language pack not found.' });
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json(checked.pack);
+});
+
+app.get('/api/lang/packs', async (req, res) => {
+    const installed = listInstalledLangPacks();
+    let available = [];
+    let offline = false;
+    try {
+        if (Date.now() - langRemoteCache.at > 10 * 60 * 1000) {
+            const r = await relayFetch(`${RELAY_URL}/relay/lang-packs`, { method: 'GET' }, 12000);
+            if (!r.ok) throw new Error('RELAY answered ' + r.status);
+            const body = await r.json();
+            langRemoteCache = {
+                at: Date.now(),
+                packs: (Array.isArray(body.packs) ? body.packs : [])
+                    .filter(p => p && LANG_CODE_RE.test(String(p.code || '')))
+                    .map(p => ({ code: p.code, name: String(p.name || p.code).slice(0, 40), native: String(p.native || p.name || p.code).slice(0, 40), version: String(p.version || '').slice(0, 40), count: Number(p.count) || 0 }))
+            };
+        }
+        available = langRemoteCache.packs;
+    } catch (e) {
+        offline = true;
+        available = langRemoteCache.packs;
+    }
+    res.json({
+        success: true,
+        offline,
+        installed,
+        available: available.map(p => {
+            const have = installed.find(i => i.code === p.code);
+            return { ...p, installed: !!have, updateAvailable: !!have && !!p.version && have.version !== p.version };
+        })
+    });
+});
+
+app.post('/api/lang/packs/download', requirePermission('ux_settings_view'), async (req, res) => {
+    const code = String((req.body && req.body.code) || '').toLowerCase();
+    if (!LANG_CODE_RE.test(code) || code === 'en') return res.status(400).json({ success: false, message: 'Invalid language code.' });
+    try {
+        const r = await relayFetch(`${RELAY_URL}/relay/lang-packs/${encodeURIComponent(code)}`, { method: 'GET' }, 30000);
+        if (r.status === 404) return res.status(404).json({ success: false, message: 'That language is not available on RELAY.' });
+        if (!r.ok) return res.status(502).json({ success: false, message: 'RELAY could not provide the language pack (' + r.status + ').' });
+        const text = await r.text();
+        if (text.length > LANG_PACK_MAX_BYTES) return res.status(502).json({ success: false, message: 'The language pack is too large.' });
+        let parsed;
+        try { parsed = JSON.parse(text); } catch (e) { return res.status(502).json({ success: false, message: 'The downloaded language pack is not valid.' }); }
+        const checked = validateLangPack(parsed, code);
+        if (!checked.ok) return res.status(502).json({ success: false, message: 'The downloaded language pack was rejected: ' + checked.error });
+        fs.mkdirSync(LANG_PACK_DIR, { recursive: true });
+        const finalPath = path.join(LANG_PACK_DIR, code + '.json');
+        const tmpPath = finalPath + '.tmp';
+        fs.writeFileSync(tmpPath, JSON.stringify(checked.pack));
+        fs.renameSync(tmpPath, finalPath);            // atomic: a half-written pack can never be served
+        logAction(req.authUser.username, `Downloaded language pack "${code}" (${checked.count} translations)`);
+        res.json({ success: true, pack: { code, name: checked.pack.name, native: checked.pack.native, version: checked.pack.version, count: checked.count } });
+    } catch (err) {
+        const offline = err && err.code === 'NO_INTERNET';
+        res.status(offline ? 503 : 502).json({ success: false, message: offline ? 'No internet connection. Connect and try again.' : 'Could not download the language pack: ' + err.message });
+    }
+});
+
+app.delete('/api/lang/packs/:code', requirePermission('ux_settings_view'), (req, res) => {
+    const code = String(req.params.code || '').toLowerCase();
+    if (!LANG_CODE_RE.test(code)) return res.status(400).json({ success: false, message: 'Invalid language code.' });
+    try {
+        fs.unlinkSync(path.join(LANG_PACK_DIR, code + '.json'));
+        logAction(req.authUser.username, `Removed language pack "${code}"`);
+    } catch (e) { /* already gone */ }
+    res.json({ success: true });
+});
+
 app.get('/api/ux-settings', (req, res) => {
     const settings = readData(FILE_UX_SETTINGS, DEFAULT_UX_SETTINGS);
     res.json(getUxSettingsPublic(settings));
@@ -5634,7 +5749,8 @@ const INTEGRITY_SCAN_EXCLUDE_NAMES = new Set([
     '.env', '.env.key', 'database', 'node_modules', 'uploads_tmp',
     '.git', 'release', 'cf.log', 'server.log', '.start.sh.lock',
     '.self-update-backup', 'package-lock.json', 'certs',
-    'cloud-backup-pricing-cache.json'
+    'cloud-backup-pricing-cache.json',
+    '.native-install-ok'   // marker written by the Android app after unpacking the bundle
 ]);
 const INTEGRITY_SCAN_EXCLUDE_EXTENSIONS = new Set(['.log', '.patch']);
 function computeInstallDirManifest() {
@@ -5704,6 +5820,8 @@ async function runRelayIntegrityCheckin() {
                 installationId,
                 version: APP_VERSION,
                 files,
+                // The Android app runs the bundled (non-obfuscated) code, so RELAY compares it with the native baseline.
+                runtime: process.env.OMNIPOS_EMBEDDED === '1' ? 'native' : 'standard',
                 watcherActive: !INTEGRITY_MONITOR_DISABLED && integrityWatchers.size > 0
             })
         });
@@ -18036,6 +18154,23 @@ app.get('/api/system/reset/status/:jobId', rateLimit('system-reset-status', 400,
         return res.status(404).json({ success: false, message: 'Job not found or already expired.' });
     }
     res.json({ success: true, ...job });
+});
+// Full JSON backup download: same shape as the "omnipos_full_backup_*.json" email attachment, so the file works with
+// Settings > System Update > Initialize State Schema Restore. Admin only (the file contains accounts and all business data).
+app.get('/api/backup/export-json', rateLimit('backup-export-json', 6, 15 * 60 * 1000), (req, res) => {
+    const role = String((req.authUser && req.authUser.role) || '').toLowerCase();
+    if (role !== 'admin') return res.status(403).json({ success: false, message: 'Only an Admin can export a full backup.' });
+    try {
+        const snapshot = getFullDatabaseSnapshot({ excludeProductImages: req.query && req.query.images === '0' });
+        const body = JSON.stringify({ timestamp: snapshot.generatedAt, ...snapshot.modules });
+        logAction(req.authUser.username, `Exported a full JSON backup (${(body.length / 1048576).toFixed(1)} MB)`);
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="omnipos_full_backup_${Date.now()}.json"`);
+        res.send(body);
+    } catch (e) {
+        const tooBig = e instanceof RangeError;
+        res.status(500).json({ success: false, message: tooBig ? 'The database is too large to export as one JSON file on this device. Use the .db copy instead.' : 'Could not create the backup file: ' + e.message });
+    }
 });
 app.post('/api/restore-backup', rateLimit('restore-backup', 5, 15 * 60 * 1000), (req, res) => {
     const { username, password, backupData } = req.body || {};
