@@ -8271,6 +8271,160 @@ app.get('/api/admin/cloud-tokens/transaction-history', requirePermission('cloud_
         res.status(500).json({ success: false, message: err.message });
     }
 });
+// ===================================================================
+// BAGO: Omni Tokens — (1) balance-ping para sa Ka-Ching sound/purchase-confirmation watcher ng client,
+//       (2) email ng purchase confirmation sa client (2FA email kung meron, o kung anong ilagay niya).
+// Ang balance-ping ay magaan: wallet lang ang tinatawag sa RELAY (walang pricing/packages).
+// ===================================================================
+function getSavedTokenConfirmationEmail() {
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    try {
+        const adv = readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS) || {};
+        const e = typeof adv.twoFactorRecipientEmail === 'string' ? adv.twoFactorRecipientEmail.trim() : '';
+        return emailPattern.test(e) ? e : '';
+    } catch (_e) { return ''; }
+}
+app.get('/api/admin/cloud-tokens/balance-ping', requirePermission('cloud_tokens_view'), async (req, res) => {
+    try {
+        if (!RELAY_API_KEY) return res.json({ success: true, wallet: { available: false } });
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const w = await fetchCloudTokenWallet(installationId);
+        if (!w.ok) return res.json({ success: true, wallet: { available: false, unavailableReason: w.reason } });
+        const ledger = (Array.isArray(w.ledger) ? w.ledger : []).slice(0, 8).map(r => ({
+            id: r.id, category: r.category, type: r.type, tokens: r.tokens, balance_after: r.balance_after,
+            note: r.note, created_at: r.created_at, purchase_id: r.purchase_id || null,
+            amount_php: r.amount_php === undefined ? null : r.amount_php, method: r.method || null
+        }));
+        res.json({ success: true, wallet: { available: true, balanceTokens: w.balanceTokens, ledger } });
+    } catch (err) {
+        res.json({ success: true, wallet: { available: false } });
+    }
+});
+app.get('/api/admin/cloud-tokens/purchase-confirmation/info', requirePermission('cloud_tokens_view'), (req, res) => {
+    try {
+        const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+        const rs = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS) || {};
+        const saved = getSavedTokenConfirmationEmail();
+        res.json({
+            success: true,
+            businessName: String(rs.storeName || 'OmniPOS').slice(0, 80),
+            installationShort: String(installationId || '').slice(0, 8),
+            hasSavedEmail: !!saved,
+            savedEmailMasked: saved ? maskEmail(saved) : null,
+            canSend: !!getOtpMailCredentials(),
+            birDocumentMode: isBirDocumentModeActive()
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Could not load the confirmation details.' });
+    }
+});
+async function findTokenPurchaseLedgerRow(installationId, purchaseId) {
+    const matches = (r) => r && r.category === 'TOKEN_PURCHASE' && typeof r.note === 'string' && r.note.startsWith(`Purchase ${purchaseId} (`);
+    const wallet = await fetchCloudTokenWallet(installationId);
+    if (wallet.ok) {
+        const hit = (wallet.ledger || []).find(matches);
+        if (hit) return hit;
+    }
+    try {
+        const qs = new URLSearchParams({ installationId, category: 'TOKEN_PURCHASE', limit: '50' });
+        const relayRes = await relayFetch(`${RELAY_URL}/relay/cloud-tokens/transaction-history?${qs.toString()}`, { headers: { 'x-relay-key': RELAY_API_KEY } }, 8000);
+        const data = await parseRelayResponse(relayRes);
+        if (relayRes.ok && data.success) return (data.transactions || []).find(matches) || null;
+    } catch (_e) { /* wala pang makita — 404 sa ibaba */ }
+    return null;
+}
+app.post('/api/admin/cloud-tokens/purchase-confirmation/email',
+    requirePermission('cloud_tokens_view'),
+    rateLimit('ct-purchase-confirmation-email', 8, 10 * 60 * 1000, 'Too many emails were sent. Please wait a few minutes before sending again.'),
+    async (req, res) => {
+        try {
+            const body = req.body || {};
+            const purchaseId = String(body.purchaseId || '').trim();
+            if (!/^TKN-[A-Za-z0-9_-]{1,80}$/.test(purchaseId)) {
+                return res.status(400).json({ success: false, message: 'Invalid purchase reference.' });
+            }
+            let to = String(body.to || '').trim();
+            const usedSaved = !to;
+            if (usedSaved) to = getSavedTokenConfirmationEmail();
+            if (!to || to.length > 254 || /[\r\n,;<>"\s]/.test(to) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+                return res.status(400).json({ success: false, code: 'INVALID_EMAIL', message: 'Please enter a valid email address.' });
+            }
+            const creds = getOtpMailCredentials();
+            if (!creds) {
+                return res.status(409).json({ success: false, code: 'MAIL_NOT_CONFIGURED', message: 'Email sending is not set up yet (Google App Verification). You can still use Share or Download.' });
+            }
+            const installationId = getOrCreateInstallationId(readFeatureUnlocks());
+            const row = await findTokenPurchaseLedgerRow(installationId, purchaseId);
+            if (!row) {
+                return res.status(404).json({ success: false, message: 'This purchase is not in your Omni Tokens history yet. Please try again in a moment.' });
+            }
+            const birMode = isBirDocumentModeActive();
+            const docWord = birMode ? 'Receipt' : 'Purchase Confirmation';
+            const tokens = Number(row.tokens);
+            const amountRaw = Number(row.amount_php);
+            const amountPHP = Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : tokens;
+            const methodMatch = String(row.note).match(/^Purchase \S+ \((.*)\)$/);
+            const method = String(row.method || (methodMatch ? methodMatch[1] : '') || '').slice(0, 40);
+            const paidAt = row.created_at ? new Date(row.created_at) : new Date();
+            const paidAtLabel = paidAt.toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' });
+            const balanceAfter = row.balance_after === null || row.balance_after === undefined ? null : Number(row.balance_after);
+            const rs = readData(FILE_RECEIPT_SETTINGS, DEFAULT_RECEIPT_SETTINGS) || {};
+            const businessName = String(rs.storeName || 'OmniPOS').slice(0, 80);
+            const fmt = (n) => Number(n).toLocaleString('en-PH', { maximumFractionDigits: 3 });
+            const lines = [
+                ['Reference', purchaseId],
+                ['Date', paidAtLabel],
+                ['Payment method', method || '—'],
+                ['Omni Tokens credited', fmt(tokens)],
+                ['Amount paid', `PHP ${fmt(amountPHP)}`],
+                ['Balance after purchase', balanceAfter === null || !Number.isFinite(balanceAfter) ? '—' : `${fmt(balanceAfter)} tokens`],
+                ['Account', businessName]
+            ];
+            const footnote = birMode
+                ? 'Thank you for your purchase.'
+                : 'This message is a record of your Omni Tokens purchase and is not an official tax document.';
+            const text = `Thank you! Your Omni Tokens purchase was received.\n\n`
+                + lines.map(([k, v]) => `${k}: ${v}`).join('\n')
+                + `\n\n${footnote}`;
+            const rowsHtml = lines.map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#64748b;">${escapeHtml(k)}</td><td style="padding:6px 0;font-weight:600;color:#0f172a;">${escapeHtml(String(v))}</td></tr>`).join('');
+            const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:auto;padding:20px;">`
+                + `<h2 style="margin:0 0 4px;color:#0f172a;">Omni Tokens — ${escapeHtml(docWord)}</h2>`
+                + `<p style="margin:0 0 16px;color:#475569;">Thank you! Your Omni Tokens purchase was received.</p>`
+                + `<table style="border-collapse:collapse;font-size:14px;">${rowsHtml}</table>`
+                + `<p style="margin:16px 0 0;color:#64748b;font-size:12px;">${escapeHtml(footnote)}</p></div>`;
+            const attachments = [];
+            if (typeof body.pdfBase64 === 'string' && body.pdfBase64.length > 0) {
+                if (body.pdfBase64.length > 4 * 1024 * 1024 || !/^[A-Za-z0-9+/=\s]+$/.test(body.pdfBase64)) {
+                    return res.status(400).json({ success: false, message: 'The attached file is invalid or too large.' });
+                }
+                const pdfBuf = Buffer.from(body.pdfBase64, 'base64');
+                if (pdfBuf.length < 100 || pdfBuf.slice(0, 5).toString('latin1') !== '%PDF-') {
+                    return res.status(400).json({ success: false, message: 'The attached file is not a valid PDF.' });
+                }
+                attachments.push({
+                    filename: birMode ? `OmniTokens-Receipt-${purchaseId}.pdf` : `OmniTokens-Purchase-Confirmation-${purchaseId}.pdf`,
+                    content: pdfBuf.toString('base64'),
+                    encoding: 'base64',
+                    contentType: 'application/pdf'
+                });
+            }
+            await sendMailSmart(creds.user, creds.pass, {
+                from: `"OmniPOS" <${creds.user}>`,
+                to,
+                subject: `OmniPOS: Omni Tokens purchase ${docWord.toLowerCase()} (${purchaseId})`,
+                text,
+                html,
+                attachments
+            });
+            logAction((req.authUser && req.authUser.username) || 'System', `Emailed Omni Tokens purchase ${docWord.toLowerCase()} ${purchaseId} to ${maskEmail(to)}${usedSaved ? ' (saved 2FA email)' : ''}`);
+            res.json({ success: true, sentTo: maskEmail(to), usedSavedEmail: usedSaved });
+        } catch (err) {
+            const described = (typeof describeMailError === 'function') ? describeMailError(err) : (err && err.message);
+            console.error('Omni Tokens purchase confirmation email failed:', err && err.message);
+            res.status(502).json({ success: false, message: `The email could not be sent: ${described || 'unknown error'}` });
+        }
+    }
+);
 app.post('/api/admin/cloud-tokens/auto-sync-toggle', async (req, res) => {
     if (!req.authUser || req.authUser.role.toLowerCase() !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin privileges only can change this setting.' });

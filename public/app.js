@@ -8684,6 +8684,7 @@ function renderTransactionHistoryRows(rows, append, targetId) {
             <div style="flex:1;">
                 <div style="font-size:0.85rem;">${entry.note || entry.category}${triggerLabel}</div>
                 <div style="font-size:0.75rem; color:var(--text-muted);">${dateStr}</div>
+                ${ctPurchaseRowButtonHtml(entry)}
             </div>
             <div style="font-weight:600; color:${meta.color};">${amountDisplay}</div>
         </div>`;
@@ -8849,6 +8850,7 @@ function renderCloudTokensOverview(data) {
     const banner = document.getElementById('ct-insufficient-banner');
     if (data.wallet && data.wallet.available) {
         if (balanceEl) balanceEl.textContent = ctFmtNum(data.wallet.balanceTokens);
+        try { ctProcessWallet(data.wallet); } catch (_ctErr) { console.warn('[OmniPOS] Omni Tokens watcher error:', _ctErr); }
         if (banner) banner.style.display = data.wallet.sufficientForSync === false ? 'flex' : 'none';
         if (toggleEl) toggleEl.disabled = data.wallet.sufficientForSync === false;
     } else {
@@ -9066,9 +9068,11 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
             Swal.fire('Error', (data && data.message) || 'Could not start the token purchase.', 'error');
             return;
         }
+        try { ctSetAwaiting(data, method); } catch (_ctErr) { /* hindi dapat humarang sa bayad */ }
         if (data.checkoutUrl) {
             Swal.fire({ title: 'Redirecting to checkout', text: `Complete the ${method.toUpperCase()} payment for ${ctFmtNum(data.tokens)} tokens (₱${ctFmtNum(data.amountPHP)}) in the new tab that just opened.`, icon: 'info', timer: 3000, showConfirmButton: false });
             window.open(data.checkoutUrl, '_blank');
+            window.__ctPollUntil = Date.now() + 10 * 6000;
             let pollCount = 0;
             clearInterval(cloudTokensPollTimer);
             cloudTokensPollTimer = setInterval(() => {
@@ -9084,6 +9088,7 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
             const qrPad2 = (n) => String(n).padStart(2, '0');
             ctQrDownloadSrc = String(data.qrCodeImageUrl);
             ctQrDownloadName = `OmniTokens-QRPh-PHP${String(data.amountPHP).replace(/[^0-9.]/g, '')}-${qrStamp.getFullYear()}${qrPad2(qrStamp.getMonth() + 1)}${qrPad2(qrStamp.getDate())}-${qrPad2(qrStamp.getHours())}${qrPad2(qrStamp.getMinutes())}.png`;
+            ctQrModalOpen = true;
             Swal.fire({
                 title: 'Scan the QR Ph code',
                 html: `<div class="paymongo-qr-content">
@@ -9095,7 +9100,8 @@ async function startCloudTokenPurchase(packageId, customTokens, method) {
                 customClass: { popup: 'paymongo-qr-modal' },
                 showConfirmButton: true,
                 confirmButtonText: 'Close'
-            });
+            }).then(() => { ctQrModalOpen = false; });
+            window.__ctPollUntil = Date.now() + 90 * 10000;
             let pollCount = 0;
             clearInterval(cloudTokensPollTimer);
             cloudTokensPollTimer = setInterval(() => {
@@ -9140,6 +9146,644 @@ function buyCloudTokensCustom() {
     }
     startCloudTokenPurchase(null, amount, customMethod);
 }
+// ===================================================================
+// BAGO: Omni Tokens — Ka-Ching sound + Purchase Confirmation (email / share / PDF)
+//
+// 1) KA-CHING SOUND: tumutunog kapag may PUMASOK na token (bumili) o NABAWAS (sync/feature/donation...).
+//    Per-device ang setting (localStorage): Both / Incoming only / Deducted only / Off.
+//    Makikita sa Settings > Advanced (Omni Tokens Sound) at sa speaker button ng Omni Tokens page.
+//    Parehong apk (Native at Termux) ang gumagamit ng web app na ito, kaya iisang setting lang.
+// 2) PURCHASE CONFIRMATION: paglabas ng bayad sa wallet, may prompt na may preview ng card, email box,
+//    Share button at Download (PDF na larawan ang laman). Kung may 2FA email na naka-set, awtomatiko itong
+//    ipapadala doon; kung wala, ang prompt ang lalabas at maglalagay ng email ang client.
+//    BIR-safe: hangga't hindi pa BIR document mode (isBirDocumentModeEnabled), ang tawag ay
+//    "Purchase Confirmation" (hindi "Receipt"/"Invoice"/"OR"). "Receipt" lang kapag naka-unlock na.
+// ===================================================================
+const OmniTokenSound = (function () {
+    const KEY = 'omnipos_token_sound_mode';
+    const SRC_M4A = 'sounds/ka-ching.m4a?v=1';
+    const SRC_MP3 = 'sounds/ka-ching.mp3?v=1';
+    let audio = null;
+    let lastAt = 0;
+    let triedFallback = false;
+    function pickSrc() {
+        try {
+            const a = document.createElement('audio');
+            if (a.canPlayType('audio/mp4; codecs="mp4a.40.2"') || a.canPlayType('audio/mp4')) return SRC_M4A;
+            if (a.canPlayType('audio/mpeg')) return SRC_MP3;
+        } catch (e) { /* default sa m4a */ }
+        return SRC_M4A;
+    }
+    function getMode() {
+        try {
+            const v = localStorage.getItem(KEY);
+            if (v === 'off' || v === 'in' || v === 'out' || v === 'both') return v;
+        } catch (e) { /* default */ }
+        return 'both';
+    }
+    function setMode(m) {
+        try { localStorage.setItem(KEY, (m === 'off' || m === 'in' || m === 'out') ? m : 'both'); } catch (e) { /* ignore */ }
+    }
+    function ensure() {
+        if (audio) return audio;
+        audio = new Audio();
+        audio.preload = 'auto';
+        audio.src = pickSrc();
+        audio.addEventListener('error', function () {
+            if (!triedFallback) { triedFallback = true; audio.src = SRC_MP3; }
+        });
+        return audio;
+    }
+    function allowed(kind) {
+        const m = getMode();
+        if (m === 'off') return false;
+        if (kind === 'in') return m === 'both' || m === 'in';
+        if (kind === 'out') return m === 'both' || m === 'out';
+        return false;
+    }
+    function play(kind, force) {
+        if (!force && !allowed(kind)) return false;
+        const now = Date.now();
+        if (!force && now - lastAt < 1500) return false;
+        lastAt = now;
+        try {
+            const a = ensure();
+            try { a.currentTime = 0; } catch (e) { /* hindi pa loaded */ }
+            const p = a.play();
+            if (p && typeof p.catch === 'function') p.catch(function () { /* naka-block ang autoplay — walang gagawin */ });
+            return true;
+        } catch (e) { return false; }
+    }
+    // Para sa desktop/mobile browsers na humihingi ng user gesture bago makapag-play ng audio.
+    function unlock() {
+        try {
+            const a = ensure();
+            a.muted = true;
+            const p = a.play();
+            const done = function () { try { a.pause(); a.currentTime = 0; } catch (e) { /* ignore */ } a.muted = false; };
+            if (p && typeof p.then === 'function') p.then(done).catch(function () { a.muted = false; });
+            else done();
+        } catch (e) { /* ignore */ }
+    }
+    const once = function () {
+        ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) { document.removeEventListener(ev, once, true); });
+        unlock();
+    };
+    ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, once, true); });
+    return { getMode: getMode, setMode: setMode, play: play };
+})();
+
+function syncTokenSoundUi() {
+    const m = OmniTokenSound.getMode();
+    const sel = document.getElementById('adv-token-sound-mode');
+    if (sel) sel.value = m;
+    const btn = document.getElementById('ct-sound-quick-btn');
+    if (btn) {
+        const on = m !== 'off';
+        btn.innerHTML = '<i class="fa-solid ' + (on ? 'fa-volume-high' : 'fa-volume-xmark') + '"></i>';
+        btn.classList.toggle('is-off', !on);
+        btn.title = on ? 'Ka-Ching sound is ON — tap to mute' : 'Ka-Ching sound is OFF — tap to turn on';
+        btn.setAttribute('aria-label', btn.title);
+    }
+}
+function onTokenSoundModeChange(sel) {
+    OmniTokenSound.setMode(sel && sel.value);
+    syncTokenSoundUi();
+    if (OmniTokenSound.getMode() !== 'off') OmniTokenSound.play('in', true);
+}
+function toggleTokenSoundQuick() {
+    OmniTokenSound.setMode(OmniTokenSound.getMode() === 'off' ? 'both' : 'off');
+    syncTokenSoundUi();
+    if (OmniTokenSound.getMode() !== 'off') OmniTokenSound.play('in', true);
+}
+function testTokenSound() { OmniTokenSound.play('in', true); }
+document.addEventListener('DOMContentLoaded', syncTokenSoundUi);
+
+// ---------- storage helpers ----------
+const CT_AWAIT_KEY = 'omnipos_ct_awaiting';
+const CT_SEEN_KEY = 'omnipos_ct_rcpt_seen';
+const CT_EMAILED_KEY = 'omnipos_ct_rcpt_emailed';
+const CT_LAST_EMAIL_KEY = 'omnipos_ct_rcpt_last_email';
+function ctReadJson(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw === null ? fallback : JSON.parse(raw);
+    } catch (e) { return fallback; }
+}
+function ctWriteJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ }
+}
+function ctPurchaseIdFromRow(row) {
+    const m = /^Purchase (TKN-[A-Za-z0-9_-]+) \(/.exec(String((row && row.note) || ''));
+    return m ? m[1] : '';
+}
+function ctMethodLabel(id) {
+    let label = '';
+    try {
+        const opt = Array.from(document.querySelectorAll('select.ct-payment-select option')).find(function (o) { return o.value === id; });
+        label = opt ? String(opt.textContent || '').trim() : '';
+    } catch (e) { /* ignore */ }
+    return label || String(id || '').toUpperCase();
+}
+function ctIsBirDoc() {
+    try { return typeof isBirDocumentModeEnabled === 'function' && !!isBirDocumentModeEnabled(); } catch (e) { return false; }
+}
+function ctDocWord() { return ctIsBirDoc() ? 'Receipt' : 'Purchase Confirmation'; }
+function ctGetAwaiting() {
+    const a = ctReadJson(CT_AWAIT_KEY, null);
+    if (!a || !a.purchaseId) return null;
+    if (Date.now() - (a.at || 0) > 3 * 3600 * 1000) {
+        try { localStorage.removeItem(CT_AWAIT_KEY); } catch (e) { /* ignore */ }
+        return null;
+    }
+    return a;
+}
+function ctSetAwaiting(data, method) {
+    if (!data || !data.purchaseId) return;
+    const tokens = Number(data.tokens) || 0;
+    ctWriteJson(CT_AWAIT_KEY, {
+        purchaseId: String(data.purchaseId),
+        tokens: tokens,
+        amountPHP: Number(data.amountPHP) || tokens,
+        method: String(method || ''),
+        methodLabel: ctMethodLabel(method),
+        at: Date.now()
+    });
+}
+function ctClearAwaiting(purchaseId) {
+    const a = ctReadJson(CT_AWAIT_KEY, null);
+    if (a && a.purchaseId === purchaseId) { try { localStorage.removeItem(CT_AWAIT_KEY); } catch (e) { /* ignore */ } }
+}
+function ctMarkSeen(purchaseId) {
+    const seen = ctReadJson(CT_SEEN_KEY, []);
+    const list = Array.isArray(seen) ? seen : [];
+    if (list.indexOf(purchaseId) === -1) list.push(purchaseId);
+    ctWriteJson(CT_SEEN_KEY, list.slice(-100));
+}
+
+// ---------- wallet watcher: sound + bagong bayad ----------
+let ctLastBalance = null;
+let ctQrModalOpen = false;
+let ctPingBusy = false;
+let ctLastPingAt = 0;
+function ctFindNewPurchases(ledger) {
+    const rows = ledger.filter(function (r) { return r && ctPurchaseIdFromRow(r); });
+    const awaiting = ctGetAwaiting();
+    let seen = ctReadJson(CT_SEEN_KEY, null);
+    if (!Array.isArray(seen)) {
+        // Unang beses sa device na ito: ang mga lumang bili ay hindi na ipo-prompt (maliban sa kasalukuyang hinihintay).
+        seen = rows.map(ctPurchaseIdFromRow).filter(function (id) { return !(awaiting && awaiting.purchaseId === id); });
+        ctWriteJson(CT_SEEN_KEY, seen);
+    }
+    const out = [];
+    rows.forEach(function (r) {
+        const id = ctPurchaseIdFromRow(r);
+        if (seen.indexOf(id) !== -1) return;
+        const mine = !!(awaiting && awaiting.purchaseId === id);
+        const age = Date.now() - new Date(r.created_at).getTime();
+        if (!mine && !(age < 24 * 3600 * 1000)) { ctMarkSeen(id); return; }
+        out.push(r);
+    });
+    return out;
+}
+function ctProcessWallet(w) {
+    if (!w || w.available === false || typeof w.balanceTokens !== 'number') return;
+    const bal = w.balanceTokens;
+    const prev = ctLastBalance;
+    ctLastBalance = bal;
+    const fresh = ctFindNewPurchases(Array.isArray(w.ledger) ? w.ledger : []);
+    let kind = null;
+    if (prev !== null && bal > prev + 0.0005) kind = 'in';
+    else if (prev !== null && bal < prev - 0.0005) kind = 'out';
+    if (fresh.length) kind = 'in';
+    if (kind) OmniTokenSound.play(kind);
+    if (fresh.length) ctEnqueueConfirmations(fresh);
+}
+function ctIsAdminSession() {
+    try {
+        if (!localStorage.getItem('omnipos_token')) return false;
+        const u = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : JSON.parse(localStorage.getItem('omnipos_user') || 'null');
+        return !!u && String(u.role || '').toLowerCase() === 'admin';
+    } catch (e) { return false; }
+}
+function ctWatcherTick() {
+    try {
+        if (document.hidden || ctPingBusy || !ctIsAdminSession()) return;
+        const now = Date.now();
+        if (window.__ctPollUntil && now < window.__ctPollUntil) return; // may tumatakbong overview poll na (iwas dobleng tawag sa RELAY)
+        const awaiting = ctGetAwaiting();
+        const interval = awaiting ? 45000 : (OmniTokenSound.getMode() !== 'off' ? 90000 : 240000);
+        if (now - ctLastPingAt < interval) return;
+        ctLastPingAt = now;
+        ctPingBusy = true;
+        authFetch(`${API_URL}/admin/cloud-tokens/balance-ping`, { timeoutMs: 15000 })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d && d.success) ctProcessWallet(d.wallet); })
+            .catch(function () { /* offline — subukan ulit sa susunod */ })
+            .finally(function () { ctPingBusy = false; });
+    } catch (e) { ctPingBusy = false; }
+}
+setInterval(ctWatcherTick, 15000);
+setTimeout(ctWatcherTick, 20000);
+
+// ---------- confirmation queue ----------
+let ctConfirmQueue = [];
+let ctConfirmBusy = false;
+function ctBuildReceiptData(row) {
+    const id = ctPurchaseIdFromRow(row);
+    const aw = ctGetAwaiting();
+    const mine = (aw && aw.purchaseId === id) ? aw : null;
+    const tokensRaw = Number(row.tokens);
+    const tokens = (Number.isFinite(tokensRaw) && tokensRaw > 0) ? tokensRaw : (mine ? mine.tokens : 0);
+    const amountRaw = Number(row.amount_php);
+    const nm = /^Purchase \S+ \((.*)\)$/.exec(String(row.note || ''));
+    const methodId = (mine && mine.method) || row.method || (nm ? nm[1] : '');
+    let balanceAfter = null;
+    if (row.balance_after !== null && row.balance_after !== undefined && Number.isFinite(Number(row.balance_after))) balanceAfter = Number(row.balance_after);
+    return {
+        purchaseId: id,
+        tokens: tokens,
+        amountPHP: (Number.isFinite(amountRaw) && amountRaw > 0) ? amountRaw : ((mine && mine.amountPHP) || tokens),
+        methodLabel: (mine && mine.methodLabel) || ctMethodLabel(methodId),
+        paidAt: row.created_at || new Date().toISOString(),
+        balanceAfter: balanceAfter
+    };
+}
+function ctEnqueueConfirmations(rows) {
+    rows.forEach(function (r) {
+        const id = ctPurchaseIdFromRow(r);
+        ctMarkSeen(id);
+        ctConfirmQueue.push(ctBuildReceiptData(r));
+    });
+    ctDrainConfirmQueue();
+}
+function ctIsOnTokensView() {
+    const v = document.getElementById('view-cloudtokens');
+    return !!(v && v.offsetParent !== null);
+}
+function ctDrainConfirmQueue() {
+    if (ctConfirmBusy || !ctConfirmQueue.length) return;
+    if (typeof Swal === 'undefined') return;
+    const next = ctConfirmQueue[0];
+    const aw = ctGetAwaiting();
+    const mine = !!(aw && aw.purchaseId === next.purchaseId);
+    const swalOpen = Swal.isVisible();
+    // Huwag tabunan ang ibang bukas na dialog — maliban sa QR modal ng bayad na ito mismo.
+    if (swalOpen && !(ctQrModalOpen && mine)) { setTimeout(ctDrainConfirmQueue, 4000); return; }
+    ctConfirmQueue.shift();
+    ctConfirmBusy = true;
+    const finish = function () { ctClearAwaiting(next.purchaseId); ctConfirmBusy = false; ctDrainConfirmQueue(); };
+    if (mine || ctIsOnTokensView()) {
+        if (swalOpen) Swal.close();
+        ctQrModalOpen = false;
+        openPurchaseConfirmation(next).then(finish, finish);
+        return;
+    }
+    // Nasa ibang screen ang admin: maliit na abiso lang, may button para buksan.
+    Swal.fire({
+        toast: true, position: 'top-end', icon: 'success',
+        title: 'Omni Tokens purchase received',
+        text: `${ctFmtNum(next.tokens)} tokens added`,
+        showConfirmButton: true,
+        confirmButtonText: ctIsBirDoc() ? 'View receipt' : 'View confirmation',
+        timer: 15000, timerProgressBar: true
+    }).then(function (r) {
+        if (r && r.isConfirmed) return openPurchaseConfirmation(next);
+        return null;
+    }).then(finish, finish);
+}
+
+// ---------- confirmation card (canvas) + PDF ----------
+function ctFitText(ctx, text, maxW, startPx, weight) {
+    let px = startPx;
+    const family = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    ctx.font = `${weight} ${px}px ${family}`;
+    while (ctx.measureText(text).width > maxW && px > 20) {
+        px -= 2;
+        ctx.font = `${weight} ${px}px ${family}`;
+    }
+    let out = text;
+    if (ctx.measureText(out).width > maxW) {
+        while (out.length > 1 && ctx.measureText(out + '…').width > maxW) out = out.slice(0, -1);
+        out += '…';
+    }
+    return out;
+}
+function ctRenderConfirmationCanvas(st) {
+    const r = st.rcpt;
+    const W = 900;
+    const M = 60;
+    const rows = [
+        ['Reference', r.purchaseId],
+        ['Date & time', new Date(r.paidAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })],
+        ['Payment method', r.methodLabel || '—'],
+        ['Amount paid', '₱' + ctFmtNum(r.amountPHP)],
+        ['Balance after', r.balanceAfter === null ? '—' : ctFmtNum(r.balanceAfter) + ' tokens'],
+        ['Account', st.info.businessName || 'OmniPOS']
+    ];
+    if (st.info.installationShort) rows.push(['Device ID', st.info.installationShort]);
+    const HEADER_H = 250;
+    const HERO_H = 230;
+    const ROW_H = 92;
+    const FOOT_H = 200;
+    const H = HEADER_H + HERO_H + rows.length * ROW_H + FOOT_H;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const family = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    // header band
+    const grad = ctx.createLinearGradient(0, 0, W, HEADER_H);
+    grad.addColorStop(0, '#0f172a');
+    grad.addColorStop(1, '#134e4a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, HEADER_H);
+    // check circle
+    ctx.beginPath();
+    ctx.arc(W / 2, 92, 46, 0, Math.PI * 2);
+    ctx.fillStyle = '#22c55e';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 9;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - 22, 94);
+    ctx.lineTo(W / 2 - 6, 110);
+    ctx.lineTo(W / 2 + 24, 76);
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `700 42px ${family}`;
+    ctx.fillText(ctFitText(ctx, st.word.toUpperCase(), W - M * 2, 42, 700), W / 2, 190);
+    ctx.fillStyle = '#99f6e4';
+    ctx.font = `500 26px ${family}`;
+    ctx.fillText('OmniPOS • Omni Tokens', W / 2, 228);
+    // hero
+    ctx.fillStyle = '#f0fdf4';
+    ctx.fillRect(0, HEADER_H, W, HERO_H);
+    ctx.fillStyle = '#15803d';
+    ctx.font = `800 96px ${family}`;
+    ctx.fillText('+' + ctFmtNum(r.tokens), W / 2, HEADER_H + 120);
+    ctx.fillStyle = '#166534';
+    ctx.font = `600 30px ${family}`;
+    ctx.fillText('Omni Tokens credited', W / 2, HEADER_H + 175);
+    // rows
+    let y = HEADER_H + HERO_H;
+    rows.forEach(function (row, i) {
+        const baseY = y + 58;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#64748b';
+        ctx.font = `500 28px ${family}`;
+        ctx.fillText(row[0], M, baseY);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#0f172a';
+        const maxW = W - M * 2 - 250;
+        ctx.fillText(ctFitText(ctx, String(row[1]), maxW, 30, 600), W - M, baseY);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(M, y + ROW_H - 6);
+        ctx.lineTo(W - M, y + ROW_H - 6);
+        ctx.stroke();
+        y += ROW_H;
+    });
+    // footer
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `600 30px ${family}`;
+    ctx.fillText('Thank you for your purchase!', W / 2, y + 70);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `400 22px ${family}`;
+    const note = st.birMode
+        ? 'Omni Tokens purchase record.'
+        : 'This is a record of your Omni Tokens purchase and is not an official tax document.';
+    ctx.fillText(ctFitText(ctx, note, W - M * 2, 22, 400), W / 2, y + 118);
+    ctx.fillText('Generated by OmniPOS', W / 2, y + 156);
+    return canvas;
+}
+function ctDataUrlToBytes(dataUrl) {
+    const bin = atob(String(dataUrl).split(',')[1] || '');
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+}
+function ctBytesToBase64(u8) {
+    let bin = '';
+    const CH = 0x8000;
+    for (let i = 0; i < u8.length; i += CH) bin += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+    return btoa(bin);
+}
+// Maliit na PDF writer: iisang pahina na may isang larawan (JPEG) — walang external library.
+function ctBuildPdfFromJpeg(jpegBytes, wPx, hPx) {
+    const pageW = Math.round(wPx * 0.5);
+    const pageH = Math.round(hPx * 0.5);
+    const chunks = [];
+    let offset = 0;
+    const offsets = [];
+    const enc = function (s) {
+        const a = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 255;
+        return a;
+    };
+    const push = function (u8) { chunks.push(u8); offset += u8.length; };
+    const pushStr = function (s) { push(enc(s)); };
+    const obj = function (n, body) { offsets[n] = offset; pushStr(n + ' 0 obj\n' + body + '\nendobj\n'); };
+    pushStr('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+    obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+    obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+    obj(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pageW + ' ' + pageH + '] /Resources << /XObject << /Im0 4 0 R >> /ProcSet [/PDF /ImageC] >> /Contents 5 0 R >>');
+    offsets[4] = offset;
+    pushStr('4 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + wPx + ' /Height ' + hPx + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + jpegBytes.length + ' >>\nstream\n');
+    push(jpegBytes);
+    pushStr('\nendstream\nendobj\n');
+    const content = 'q ' + pageW + ' 0 0 ' + pageH + ' 0 0 cm /Im0 Do Q';
+    obj(5, '<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream');
+    const xrefPos = offset;
+    let xref = 'xref\n0 6\n0000000000 65535 f \n';
+    for (let n = 1; n <= 5; n++) xref += String(offsets[n]).padStart(10, '0') + ' 00000 n \n';
+    pushStr(xref + 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF\n');
+    const out = new Uint8Array(offset);
+    let pos = 0;
+    chunks.forEach(function (c) { out.set(c, pos); pos += c.length; });
+    return out;
+}
+
+// ---------- confirmation modal ----------
+let ctRcptState = null;
+function ctRcptSetStatus(text, kind) {
+    const el = document.getElementById('ct-rcpt-email-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'ct-rcpt-status' + (kind ? ' is-' + kind : '');
+}
+function ctRcptSummaryHtml(st) {
+    const r = st.rcpt;
+    const rows = [
+        ['Reference', r.purchaseId],
+        ['Tokens credited', ctFmtNum(r.tokens)],
+        ['Amount paid', '₱' + ctFmtNum(r.amountPHP)],
+        ['Payment method', r.methodLabel || '—'],
+        ['Balance after', r.balanceAfter === null ? '—' : ctFmtNum(r.balanceAfter)]
+    ];
+    return '<table class="ct-rcpt-fallback">' + rows.map(function (x) {
+        return '<tr><td>' + escapeHtml(x[0]) + '</td><td>' + escapeHtml(String(x[1])) + '</td></tr>';
+    }).join('') + '</table>';
+}
+async function openPurchaseConfirmation(rcpt) {
+    if (typeof Swal === 'undefined' || !rcpt || !rcpt.purchaseId) return;
+    const birMode = ctIsBirDoc();
+    const word = birMode ? 'Receipt' : 'Purchase Confirmation';
+    let info = { businessName: '', installationShort: '', hasSavedEmail: false, savedEmailMasked: null, canSend: false };
+    try {
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/purchase-confirmation/info`, { timeoutMs: 12000 });
+        const d = await res.json();
+        if (res.ok && d && d.success) info = d;
+    } catch (e) { /* offline — ituloy na walang email */ }
+    const st = {
+        rcpt: rcpt, info: info, birMode: birMode, word: word,
+        jpegUrl: '', pdfBlob: null, pdfB64: '', sending: false,
+        fileName: (birMode ? 'OmniTokens-Receipt-' : 'OmniTokens-Purchase-Confirmation-') + rcpt.purchaseId + '.pdf'
+    };
+    try {
+        const canvas = ctRenderConfirmationCanvas(st);
+        st.jpegUrl = canvas.toDataURL('image/jpeg', 0.92);
+        const pdfBytes = ctBuildPdfFromJpeg(ctDataUrlToBytes(st.jpegUrl), canvas.width, canvas.height);
+        st.pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+        st.pdfB64 = ctBytesToBase64(pdfBytes);
+    } catch (e) {
+        console.warn('[OmniPOS] Could not build the purchase confirmation image/PDF:', e);
+    }
+    ctRcptState = st;
+    const emailed = ctReadJson(CT_EMAILED_KEY, []);
+    const alreadyEmailed = Array.isArray(emailed) && emailed.indexOf(rcpt.purchaseId) !== -1;
+    const lastEmail = (function () { try { return localStorage.getItem(CT_LAST_EMAIL_KEY) || ''; } catch (e) { return ''; } })();
+    const preview = st.jpegUrl
+        ? '<img class="ct-rcpt-preview" alt="' + escapeHtml(word) + '" src="' + st.jpegUrl + '">'
+        : ctRcptSummaryHtml(st);
+    const canMail = !!info.canSend;
+    const emailBlock = canMail
+        ? '<div class="ct-rcpt-email-row"><input type="email" id="ct-rcpt-email-input" inputmode="email" autocomplete="email" placeholder="' + (info.hasSavedEmail ? 'Send to a different email (optional)' : 'Client email address') + '" value="' + escapeHtml(info.hasSavedEmail ? '' : lastEmail) + '"><button type="button" id="ct-rcpt-send-btn" class="ct-rcpt-btn ct-rcpt-btn-primary" onclick="ctRcptSendEmail(false)"><i class="fa-solid fa-paper-plane"></i> Send</button></div>'
+        : '';
+    const html = '<div class="ct-rcpt-wrap" data-bir-keep>'
+        + preview
+        + '<div class="ct-rcpt-email">'
+        + '<div id="ct-rcpt-email-status" class="ct-rcpt-status"></div>'
+        + emailBlock
+        + '</div>'
+        + '<div class="ct-rcpt-actions">'
+        + '<button type="button" class="ct-rcpt-btn" onclick="ctRcptShare()"' + (st.pdfBlob ? '' : ' disabled') + '><i class="fa-solid fa-share-nodes"></i> Share</button>'
+        + '<button type="button" class="ct-rcpt-btn" onclick="ctRcptDownload()"' + (st.pdfBlob ? '' : ' disabled') + '><i class="fa-solid fa-file-pdf"></i> Download PDF</button>'
+        + '</div></div>';
+    const shown = Swal.fire({
+        title: word,
+        html: html,
+        icon: 'success',
+        showConfirmButton: true,
+        confirmButtonText: 'Done',
+        customClass: { popup: 'ct-rcpt-modal' },
+        didOpen: function () {
+            if (!canMail) {
+                ctRcptSetStatus('Email sending is not set up yet. Use Share or Download to give the client a copy.', 'warn');
+            } else if (info.hasSavedEmail && !alreadyEmailed) {
+                ctRcptSendEmail(true);
+            } else if (info.hasSavedEmail) {
+                ctRcptSetStatus('Already sent to ' + (info.savedEmailMasked || 'the saved email') + '. Tap Send to send it again.', 'info');
+            } else {
+                ctRcptSetStatus('Enter the client\u2019s email address to send a copy.', 'info');
+            }
+        }
+    });
+    await shown;
+    ctRcptState = null;
+}
+async function ctRcptSendEmail(auto) {
+    const st = ctRcptState;
+    if (!st || st.sending) return;
+    const input = document.getElementById('ct-rcpt-email-input');
+    const btn = document.getElementById('ct-rcpt-send-btn');
+    const to = input ? String(input.value || '').trim() : '';
+    if (!auto && !to && !st.info.hasSavedEmail) { ctRcptSetStatus('Please enter an email address.', 'warn'); return; }
+    if (to && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { ctRcptSetStatus('Please enter a valid email address.', 'warn'); return; }
+    st.sending = true;
+    if (btn) btn.disabled = true;
+    ctRcptSetStatus(to ? 'Sending…' : 'Sending to ' + (st.info.savedEmailMasked || 'the saved email') + '…', 'info');
+    try {
+        const res = await authFetch(`${API_URL}/admin/cloud-tokens/purchase-confirmation/email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ purchaseId: st.rcpt.purchaseId, to: to || undefined, pdfBase64: st.pdfB64 || undefined }),
+            timeoutMs: 45000
+        });
+        const d = await res.json().catch(function () { return null; });
+        if (res.ok && d && d.success) {
+            ctRcptSetStatus('Sent to ' + (d.sentTo || 'the email address') + ' \u2714', 'ok');
+            const emailed = ctReadJson(CT_EMAILED_KEY, []);
+            const list = Array.isArray(emailed) ? emailed : [];
+            if (list.indexOf(st.rcpt.purchaseId) === -1) list.push(st.rcpt.purchaseId);
+            ctWriteJson(CT_EMAILED_KEY, list.slice(-100));
+            if (to) { try { localStorage.setItem(CT_LAST_EMAIL_KEY, to); } catch (e) { /* ignore */ } }
+        } else {
+            ctRcptSetStatus((d && d.message) || 'Could not send the email. Please try again.', 'err');
+        }
+    } catch (e) {
+        ctRcptSetStatus('Could not reach the server to send the email.', 'err');
+    } finally {
+        st.sending = false;
+        if (btn) btn.disabled = false;
+    }
+}
+function ctTriggerDownload(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+}
+function ctRcptDownload() {
+    const st = ctRcptState;
+    if (!st || !st.pdfBlob) return;
+    try {
+        ctTriggerDownload(st.pdfBlob, st.fileName);
+        ctRcptSetStatus('Saved ' + st.fileName, 'ok');
+    } catch (e) {
+        ctRcptSetStatus('Could not save the PDF on this device.', 'err');
+    }
+}
+async function ctRcptShare() {
+    const st = ctRcptState;
+    if (!st || !st.pdfBlob) return;
+    try {
+        const file = new File([st.pdfBlob], st.fileName, { type: 'application/pdf' });
+        if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+            await navigator.share({ files: [file], title: st.word + ' — ' + st.rcpt.purchaseId });
+            return;
+        }
+    } catch (e) {
+        if (e && e.name === 'AbortError') return;
+    }
+    ctRcptDownload(); // walang share sheet sa device/browser na ito — i-save na lang
+}
+// ---------- "View" button sa Omni Tokens history ----------
+let ctRowCache = {};
+function ctPurchaseRowButtonHtml(entry) {
+    const id = ctPurchaseIdFromRow(entry);
+    if (!id) return '';
+    ctRowCache[id] = entry;
+    return '<button type="button" class="ct-rcpt-row-btn" onclick="ctOpenConfirmationFromHistory(\'' + id + '\')"><i class="fa-solid fa-file-pdf"></i> '
+        + (ctIsBirDoc() ? 'View receipt' : 'View confirmation') + '</button>';
+}
+function ctOpenConfirmationFromHistory(id) {
+    const entry = ctRowCache[id];
+    if (!entry) return;
+    openPurchaseConfirmation(ctBuildReceiptData(entry));
+}
+
 // ===================================================================
 // BAGO: Support the Developer (Sponsor / Donate)
 // Donasyon lang — HINDI nagdadagdag sa token balance ng customer; log lang.
@@ -17409,6 +18053,7 @@ async function fetchAdvancedSettings(opts) {
     return advancedSettingsCache;
 }
 async function loadAdvancedSettingsPanel() {
+    try { syncTokenSoundUi(); } catch (_e) { /* ignore */ }
     const s = await fetchAdvancedSettings();
     if (!s) return;
     markSettingsPanelClean('advanced-settings-tab');

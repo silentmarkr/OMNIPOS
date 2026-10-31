@@ -18291,3 +18291,30 @@ body.dark-mode .inv-card-margin.neg, .dark .inv-card-margin.neg { color: #fca5a5
 html.inv-grid-lock, body.inv-grid-lock { overflow: hidden !important; overscroll-behavior: none; }
 #view-products.inv-grid-mode .inv-grid-wrap.is-selecting { padding-bottom: 0; }
 #view-products.inv-grid-mode .inv-grid-wrap.is-selecting .inv-grid-scroll { padding-bottom: 84px; }
+
+
+/* ===== Omni Tokens: Ka-Ching sound toggle + purchase confirmation ===== */
+.ct-sound-quick-btn { margin-left: 8px; border: 1px solid var(--border-color, #cbd5e1); background: transparent; color: inherit; border-radius: 999px; width: 30px; height: 30px; cursor: pointer; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center; }
+.ct-sound-quick-btn.is-off { opacity: 0.6; }
+.ct-rcpt-modal { width: min(94vw, 440px) !important; padding: 18px 14px !important; }
+.ct-rcpt-wrap { display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.ct-rcpt-preview { width: 100%; max-height: 46vh; object-fit: contain; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+.ct-rcpt-fallback { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.ct-rcpt-fallback td { padding: 6px 4px; border-bottom: 1px solid #e2e8f0; }
+.ct-rcpt-fallback td:last-child { text-align: right; font-weight: 600; }
+.ct-rcpt-email { display: flex; flex-direction: column; gap: 6px; }
+.ct-rcpt-email-row { display: flex; gap: 8px; }
+.ct-rcpt-email-row input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; }
+.ct-rcpt-status { font-size: 0.82rem; min-height: 1.1em; color: #475569; }
+.ct-rcpt-status.is-ok { color: #15803d; font-weight: 600; }
+.ct-rcpt-status.is-err { color: #b91c1c; }
+.ct-rcpt-status.is-warn { color: #b45309; }
+.ct-rcpt-actions { display: flex; gap: 8px; }
+.ct-rcpt-btn { flex: 1; padding: 10px 12px; border: 1px solid #cbd5e1; background: #f8fafc; color: #0f172a; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.92rem; }
+.ct-rcpt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ct-rcpt-btn-primary { flex: 0 0 auto; background: #0f766e; border-color: #0f766e; color: #fff; }
+.ct-rcpt-row-btn { margin-top: 4px; padding: 3px 10px; font-size: 0.72rem; border: 1px solid var(--border-color, #cbd5e1); background: transparent; color: inherit; border-radius: 999px; cursor: pointer; }
+body.dark-mode .ct-rcpt-btn { background: #1e293b; color: #e2e8f0; border-color: #334155; }
+body.dark-mode .ct-rcpt-btn-primary { background: #0f766e; border-color: #0f766e; color: #fff; }
+body.dark-mode .ct-rcpt-status { color: #94a3b8; }
+body.dark-mode .ct-rcpt-status.is-ok { color: #4ade80; }

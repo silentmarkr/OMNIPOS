@@ -2760,6 +2760,19 @@
 
             <div id="advanced-settings-status" style="margin-bottom:16px; font-size:0.85rem; font-weight:600;"></div>
 
+            <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:0 0 8px;"><i class="fa-solid fa-volume-high"></i> Omni Tokens Sound (Ka-Ching)</h4>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 8px;">Plays a cash-register sound when Omni Tokens come in (a purchase) or go out (sync, unlock, donation). This setting is saved on <b>this device only</b>.</p>
+            <div class="input-field-group" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <select id="adv-token-sound-mode" onchange="onTokenSoundModeChange(this)" style="flex:1; min-width:180px;">
+                    <option value="both">On — incoming and deducted</option>
+                    <option value="in">Incoming tokens only</option>
+                    <option value="out">Deducted tokens only</option>
+                    <option value="off">Off (silent)</option>
+                </select>
+                <button type="button" class="btn-secondary" onclick="testTokenSound()" style="white-space:nowrap;"><i class="fa-solid fa-play"></i> Test sound</button>
+            </div>
+            <hr style="border:none; border-top:1px solid var(--border-color); margin:16px 0;">
+
             <h4 style="display:flex; align-items:center; gap:8px; font-size:0.98rem; margin:0 0 8px;"><i class="fa-solid fa-right-from-bracket"></i> Auto Logout</h4>
             <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 8px;">Fully signs the user out after a period of inactivity (a 15-second warning appears first). Set this longer than the Idle Auto-Lock time below so the lock screen comes first.</p>
             <div class="input-field-group" style="display:flex; align-items:center; gap:8px;">
@@ -3311,7 +3324,7 @@
                                     <i class="fa-solid fa-gem ct-diamond-icon"></i>
                                     <div>
                                         <div class="ct-balance-number" id="ct-balance-number">--</div>
-                                        <div class="ct-balance-label">Omni Tokens available</div>
+                                        <div class="ct-balance-label">Omni Tokens available <button type="button" id="ct-sound-quick-btn" class="ct-sound-quick-btn" onclick="toggleTokenSoundQuick()" title="Ka-Ching sound"><i class="fa-solid fa-volume-high"></i></button></div>
                                     </div>
                                 </div>
                                 <div class="ct-plan-info">
