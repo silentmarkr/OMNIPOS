@@ -36,7 +36,7 @@ function createAsyncMutex() {
         chain = result.then(() => {}, () => {});
         return result;
     };
-}
+} 
 const transactionsMutexRunExclusive = createAsyncMutex();
 // Separate from transactionsMutexRunExclusive on purpose: attendance time-in/out is a distinct
 // domain from sales, so it gets its own lock instead of queueing behind checkout traffic.
