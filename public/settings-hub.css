@@ -1,0 +1,241 @@
+/*
+ * OmniPOS - Settings Hub styles (settings-hub.css)
+ * Every colour comes from the theme variables (--dm-*), so Day mode and all dark themes follow automatically.
+ * (Requires the Day-mode token block at the end of style.css, which gives --dm-* light values to Day mode.)
+ */
+
+#view-users .sh-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0 0 14px;
+}
+#view-users .sh-bar-hub {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+#view-users .sh-search {
+    flex: 1 1 200px;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--dm-border, #e2e8f0);
+    border-radius: 12px;
+    background: var(--dm-surface, #ffffff);
+    color: var(--dm-text-muted, #64748b);
+}
+#view-users .sh-search:focus-within {
+    border-color: var(--dm-accent, #2563eb);
+    box-shadow: 0 0 0 3px var(--dm-accent-soft, rgba(37, 99, 235, 0.12));
+}
+#view-users .sh-search input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--dm-text-primary, #0f172a);
+    font-size: 0.92rem;
+}
+#view-users .sh-search input::placeholder { color: var(--dm-text-muted, #64748b); }
+
+#view-users .sh-seg {
+    display: inline-flex;
+    flex: none;
+    border: 1px solid var(--dm-border, #e2e8f0);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--dm-surface, #ffffff);
+}
+#view-users .sh-seg button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 12px;
+    border: 0;
+    background: transparent;
+    color: var(--dm-text-secondary, #475569);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+#view-users .sh-seg button + button { border-left: 1px solid var(--dm-border, #e2e8f0); }
+#view-users .sh-seg button:hover { background: var(--dm-surface-alt, #f1f5f9); }
+#view-users .sh-seg button.active {
+    background: var(--dm-accent-soft, rgba(37, 99, 235, 0.12));
+    color: var(--dm-accent, #2563eb);
+}
+
+#view-users .sh-bar-detail {
+    display: none;
+    align-items: center;
+    gap: 12px;
+}
+#view-users .sh-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--dm-border, #e2e8f0);
+    border-radius: 12px;
+    background: var(--dm-surface, #ffffff);
+    color: var(--dm-text-primary, #0f172a);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+#view-users .sh-back:hover { background: var(--dm-surface-alt, #f1f5f9); }
+#view-users .sh-detail-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--dm-text-primary, #0f172a);
+}
+
+/* ---- visibility rules (state machine on #view-users) ---- */
+#view-users .sh-hub { display: none; }
+#view-users.sh-mode .tabs-container { display: none !important; }
+#view-users.sh-mode.sh-state-hub .tab-content-panel { display: none !important; }
+#view-users.sh-mode.sh-state-hub .sh-hub { display: block; }
+#view-users.sh-mode.sh-state-detail .sh-bar-hub { display: none; }
+#view-users.sh-mode.sh-state-detail .sh-bar-detail { display: flex; }
+#view-users:not(.sh-mode) .sh-search { display: none; }
+#view-users:not(.sh-mode) .sh-bar-hub { justify-content: flex-end; }
+
+/* ---- shared item look ---- */
+#view-users .sh-item {
+    border: 0;
+    margin: 0;
+    font: inherit;
+    color: var(--dm-text-primary, #0f172a);
+    background: var(--dm-surface, #ffffff);
+    cursor: pointer;
+    text-align: left;
+    -webkit-tap-highlight-color: transparent;
+}
+#view-users .sh-item:hover { background: var(--dm-surface-alt, #f1f5f9); }
+#view-users .sh-item:active { transform: scale(0.99); }
+#view-users .sh-item:focus-visible,
+#view-users .sh-seg button:focus-visible,
+#view-users .sh-back:focus-visible {
+    outline: 2px solid var(--dm-accent, #2563eb);
+    outline-offset: 2px;
+}
+#view-users .sh-ico {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    font-size: 0.95rem;
+}
+#view-users .sh-tone-accent { background: color-mix(in srgb, var(--dm-accent, #2563eb) 14%, transparent); color: var(--dm-accent, #2563eb); }
+#view-users .sh-tone-success { background: color-mix(in srgb, #16a34a 16%, transparent); color: #16a34a; }
+#view-users .sh-tone-warning { background: color-mix(in srgb, #d97706 16%, transparent); color: #d97706; }
+#view-users .sh-tone-danger { background: color-mix(in srgb, #dc2626 14%, transparent); color: #dc2626; }
+#view-users .sh-tone-neutral { background: var(--dm-surface-alt, #f1f5f9); color: var(--dm-text-secondary, #475569); }
+#view-users .sh-label { font-size: 0.95rem; font-weight: 600; min-width: 0; }
+#view-users .sh-badge {
+    flex: none;
+    min-width: 22px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.5;
+}
+#view-users .sh-chev { flex: none; font-size: 0.75rem; color: var(--dm-text-muted, #64748b); }
+#view-users .sh-group-title {
+    margin: 0 4px 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dm-text-muted, #64748b);
+}
+#view-users .sh-group { margin-bottom: 16px; }
+#view-users .sh-empty {
+    padding: 28px 12px;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--dm-text-muted, #64748b);
+}
+
+/* ---- List layout ---- */
+#view-users .sh-layout-list .sh-body { max-width: 760px; }
+#view-users .sh-layout-list .sh-items {
+    border: 1px solid var(--dm-border, #e2e8f0);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--dm-surface, #ffffff);
+}
+#view-users .sh-layout-list .sh-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--dm-border, #e2e8f0);
+}
+#view-users .sh-layout-list .sh-item:last-child { border-bottom: 0; }
+#view-users .sh-layout-list .sh-label { flex: 1; }
+
+/* ---- Grid layout ---- */
+#view-users .sh-layout-grid .sh-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+#view-users .sh-layout-grid .sh-group,
+#view-users .sh-layout-grid .sh-items { display: contents; }
+#view-users .sh-layout-grid .sh-group-title { display: none; }
+#view-users .sh-layout-grid .sh-empty { grid-column: 1 / -1; }
+#view-users .sh-layout-grid .sh-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 104px;
+    padding: 14px;
+    border: 1px solid var(--dm-border, #e2e8f0);
+    border-radius: 14px;
+}
+#view-users .sh-layout-grid .sh-chev { display: none; }
+#view-users .sh-layout-grid .sh-badge { position: absolute; top: 10px; right: 10px; }
+
+/* ---- Mobile: keep the bar pinned under the app header, like the old sticky tabs ---- */
+@media screen and (max-width: 768px) {
+    #view-users .sh-bar {
+        position: sticky;
+        top: 69px;
+        z-index: 89;
+        margin-bottom: 10px;
+        padding: 10px 0 8px;
+        /* Floating: walang background ang bar sa labas; ang search box at toggle lang ang may sariling kulay */
+        background: transparent;
+    }
+    #view-users .sh-seg button span { display: none; }
+    #view-users .sh-seg button { padding: 0 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #view-users .sh-item:active { transform: none; }
+}

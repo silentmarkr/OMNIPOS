@@ -18318,3 +18318,67 @@ body.dark-mode .ct-rcpt-btn { background: #1e293b; color: #e2e8f0; border-color:
 body.dark-mode .ct-rcpt-btn-primary { background: #0f766e; border-color: #0f766e; color: #fff; }
 body.dark-mode .ct-rcpt-status { color: #94a3b8; }
 body.dark-mode .ct-rcpt-status.is-ok { color: #4ade80; }
+
+/* ==========================================================================
+   DAY-MODE THEME TOKENS FIX
+   Ang --dm-* variables sa :root ay DARK values. Dahil Day mode ay walang
+   .dark-mode class, namamana ng lahat ng component na gumagamit ng --dm-*
+   (barcode variant bar, inv-card, reorder headers, import overlay, atbp.)
+   ang dark colors. Dito binibigyan ng LIGHT values ang Day mode.
+   Ang ibang themes (body.dark-mode[data-theme=...]) ay may sariling values
+   at hindi apektado. Ang .terminal-theme ay nagre-redeclare ng sarili niyang
+   vars kaya hindi rin apektado.
+   ========================================================================== */
+body:not(.dark-mode) {
+    --dm-bg: #f4f7fb;
+    --dm-surface: #ffffff;
+    --dm-surface-alt: #f1f5f9;
+    --dm-border: #e2e8f0;
+    --dm-text-primary: #0f172a;
+    --dm-text-secondary: #475569;
+    --dm-text-muted: #64748b;
+    --dm-accent: #2563eb;
+    --dm-accent-hover: #1d4ed8;
+    --dm-accent-soft: rgba(37, 99, 235, 0.12);
+    --btn-neutral-bg: #475569;
+    --btn-neutral-fg: #ffffff;
+    --btn-neutral-bd: transparent;
+}
+body.dark-mode {
+    --btn-neutral-bg: var(--dm-surface-alt);
+    --btn-neutral-fg: var(--dm-text-primary);
+    --btn-neutral-bd: var(--dm-border);
+}
+
+/* Neutral (gray) action buttons na naka-hardcode ang #475569 sa inline style */
+.btn-action-global[style*="#475569"] {
+    background: var(--btn-neutral-bg) !important;
+    color: var(--btn-neutral-fg) !important;
+    border: 1px solid var(--btn-neutral-bd) !important;
+}
+
+/* Form controls sa loob ng pages: sumusunod sa kasalukuyang theme (lahat ng themes) */
+.app-view .data-table select,
+.app-view .data-table input[type="number"],
+.app-view .data-table input[type="text"],
+#view-barcode #barcode-price-level-select,
+#rv-bc-bar select {
+    background-color: var(--dm-surface, #fff);
+    color: var(--dm-text-primary, #0f172a);
+    border: 1px solid var(--dm-border, #e2e8f0);
+}
+.app-view .data-table select:disabled,
+.app-view .data-table input:disabled {
+    background-color: var(--dm-surface-alt, #f1f5f9);
+    color: var(--dm-text-muted, #64748b);
+    opacity: 1;
+}
+.app-view .data-table input[type="checkbox"],
+#rv-bc-bar input[type="checkbox"] {
+    accent-color: var(--dm-accent, #2563eb);
+    color-scheme: inherit;
+}
+body:not(.dark-mode) .app-view,
+body:not(.dark-mode) #rv-bc-bar { color-scheme: light; }
+body.dark-mode .app-view,
+body.dark-mode #rv-bc-bar { color-scheme: dark; }

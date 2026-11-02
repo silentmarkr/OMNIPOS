@@ -62,7 +62,7 @@
   } catch (e) {}
 })();
 
-const CACHE_VERSION = 'omnipos-shell-v136';
+const CACHE_VERSION = 'omnipos-shell-v138';
 
 // A weak store Wi-Fi must never freeze the POS: if the network does not answer within this time and a cached copy
 // exists, the cached copy is used right away and the cache is refreshed in the background when the network replies.
@@ -77,6 +77,8 @@ const SHELL_FILES = [
   '/app1.js',
   '/marketplace-ui.js',
   '/daily-digest-ui.js',
+  '/settings-hub.js',
+  '/settings-hub.css',
   '/offline-storage.js',
   '/bt-printer.js',
   '/bir-wording.js',
