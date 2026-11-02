@@ -42,6 +42,7 @@ const { readData, writeData, runDatabaseTransaction, db: sqliteDb } = require('.
 
 const MODULE_STATE = 'birState';
 const MODULE_VOIDS = 'birVoids';
+const MODULE_REFUNDS = 'birRefunds';
 const MODULE_ZHISTORY = 'birZReadingHistory';
 const MODULE_RESET_HISTORY = 'birResetHistory';
 const MODULE_TRANSACTIONS = 'transactions';
@@ -49,7 +50,7 @@ const MODULE_TRANSACTIONS = 'transactions';
 // Every data module owned by this file. The System Hard Reset uses this list to (a) split BIR data
 // out of the main emailed backup into its own attachment and (b) wipe it when the operator opts in.
 // If a new BIR module is ever added above, add it here too so the Hard Reset stays complete.
-const BIR_MODULE_NAMES = [MODULE_STATE, MODULE_VOIDS, MODULE_ZHISTORY, MODULE_RESET_HISTORY];
+const BIR_MODULE_NAMES = [MODULE_STATE, MODULE_VOIDS, MODULE_REFUNDS, MODULE_ZHISTORY, MODULE_RESET_HISTORY];
 
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000; // Asia/Manila has no DST — fixed UTC+8 year-round.
 
@@ -163,7 +164,7 @@ function onTransactionCommitted(grandTotal) {
 
 // Call from processVoidTransaction() BEFORE the transaction is spliced out of the
 // transactions list — it needs the transaction's stamped BIR fields.
-function onTransactionVoided({ transaction, voidedBy, reason }) {
+function onTransactionVoided({ transaction, voidedBy, reason, approvedBy, approvedByRole }) {
     if (!transaction) throw new Error('onTransactionVoided requires the transaction being voided.');
     const state = getBirState();
     const voids = readData(MODULE_VOIDS, []);
@@ -178,12 +179,52 @@ function onTransactionVoided({ transaction, voidedBy, reason }) {
         originalIsoDate: transactionIso(transaction),
         voidedAt: nowIso(),
         voidedBy: voidedBy || null,
+        approvedBy: approvedBy || null,
+        approvedByRole: approvedByRole || null,
         reason: String(reason || '').trim() || null,
         zCounterAtVoid: state.zCounter
         // Deliberately NOT touching state.agt — see module header note.
     };
     voids.unshift(record);
     writeData(MODULE_VOIDS, voids);
+    return record;
+}
+
+// Call from processRefundTransaction() AFTER the refund has been committed. A refund does NOT decrement the AGT (same
+// reasoning as a void: the sale already accumulated). The refund is logged separately so an examiner can see the original
+// invoice, what was returned, how much was given back, why, who processed it and who approved it.
+function onTransactionRefunded({ transaction, refundId, refundedBy, approvedBy, approvedByRole, reason, amount, items, isFullRefund, totalRefundedAfter }) {
+    if (!transaction) throw new Error('onTransactionRefunded requires the transaction being refunded.');
+    const state = getBirState();
+    const refunds = readData(MODULE_REFUNDS, []);
+    const record = {
+        id: genId('BIRRFD'),
+        refundId: refundId || null,
+        invoiceNumber: transaction.birInvoiceNumber || null,
+        invoiceNumberValue: typeof transaction.birInvoiceNumberValue === 'number' ? transaction.birInvoiceNumberValue : null,
+        transactionId: transaction.id,
+        originalAmount: round2(transaction.total),
+        amount: round2(amount),
+        totalRefundedAfter: round2(totalRefundedAfter),
+        isFullRefund: !!isFullRefund,
+        items: (Array.isArray(items) ? items : []).map(it => ({
+            code: it.code === undefined ? null : it.code,
+            name: it.name || '',
+            quantity: parseFloat(it.quantity) || 0,
+            unitPrice: round2(it.unitPrice)
+        })),
+        cashier: transaction.cashier || null,
+        originalIsoDate: transactionIso(transaction),
+        refundedAt: nowIso(),
+        refundedBy: refundedBy || null,
+        approvedBy: approvedBy || null,
+        approvedByRole: approvedByRole || null,
+        reason: String(reason || '').trim() || null,
+        zCounterAtRefund: state.zCounter
+        // Deliberately NOT touching state.agt — see module header note.
+    };
+    refunds.unshift(record);
+    writeData(MODULE_REFUNDS, refunds);
     return record;
 }
 
@@ -264,6 +305,12 @@ function performZReading({ authorizedBy } = {}) {
     const periodVoids = allVoids.filter(v =>
         typeof v.invoiceNumberValue === 'number' && v.invoiceNumberValue >= invoiceFrom && v.invoiceNumberValue <= invoiceTo
     );
+    // Refunds can be made days after the sale, so they belong to the reading period in which they were PROCESSED.
+    const periodStartMsForRefunds = state.lastZReadingAt ? new Date(state.lastZReadingAt).getTime() : NaN;
+    const periodRefunds = readData(MODULE_REFUNDS, []).filter(r => {
+        const t = new Date(r && r.refundedAt).getTime();
+        return !isNaN(t) && (isNaN(periodStartMsForRefunds) || t > periodStartMsForRefunds);
+    });
     const beginningAGT = state.baselineAGT;
     const endingAGT = state.agt;
     const record = {
@@ -277,6 +324,8 @@ function performZReading({ authorizedBy } = {}) {
         invoiceCount: Math.max(0, invoiceTo - invoiceFrom + 1),
         voidCount: periodVoids.length,
         voidAmount: round2(periodVoids.reduce((s, v) => s + (parseFloat(v.amount) || 0), 0)),
+        refundCount: periodRefunds.length,
+        refundAmount: round2(periodRefunds.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)),
         resetCounterAtReading: state.resetCounter,
         authorizedBy: authorizedBy || null,
         performedAt: nowIso()
@@ -391,6 +440,7 @@ function buildBirResetPlan({ authorizedBy, reason, archiveId, ticketId } = {}) {
         modules: [
             { module: MODULE_STATE, data: fresh },
             { module: MODULE_VOIDS, data: [] },
+            { module: MODULE_REFUNDS, data: [] },
             { module: MODULE_ZHISTORY, data: [] },
             { module: MODULE_RESET_HISTORY, data: [auditRecord] }
         ]
@@ -417,6 +467,7 @@ function getBirSignature() {
     return [
         st.agt, st.nextInvoiceNumber, st.zCounter, st.resetCounter,
         readData(MODULE_VOIDS, []).length,
+        readData(MODULE_REFUNDS, []).length,
         readData(MODULE_ZHISTORY, []).length,
         readData(MODULE_RESET_HISTORY, []).length,
         Array.isArray(transactions) ? transactions.length : 0,
@@ -427,6 +478,11 @@ function getBirSignature() {
 function getVoidLog(limit) {
     const voids = readData(MODULE_VOIDS, []);
     return typeof limit === 'number' ? voids.slice(0, limit) : voids;
+}
+
+function getRefundLog(limit) {
+    const refunds = readData(MODULE_REFUNDS, []);
+    return typeof limit === 'number' ? refunds.slice(0, limit) : refunds;
 }
 
 function getResetHistory(limit) {
@@ -458,6 +514,14 @@ function getVoidsInManilaRange(fromDateStr, toDateStr) {
         .sort((a, b) => (a.invoiceNumberValue || 0) - (b.invoiceNumberValue || 0));
 }
 
+function getRefundsInManilaRange(fromDateStr, toDateStr) {
+    const all = readData(MODULE_REFUNDS, []);
+    return all
+        .filter(r => isWithinManilaRange(r.refundedAt, fromDateStr, toDateStr))
+        .slice()
+        .sort((a, b) => (a.invoiceNumberValue || 0) - (b.invoiceNumberValue || 0) || String(a.refundedAt).localeCompare(String(b.refundedAt)));
+}
+
 function classify(tx) {
     // subtotalBeforeTax already INCLUDES the VAT when prices are VAT-inclusive (tx.taxInclusive),
     // so the VATable base is subtotal - VAT in that case; when VAT is added on top it is the subtotal itself.
@@ -481,10 +545,13 @@ function classify(tx) {
 function exportEJournal({ fromDateStr, toDateStr, context = {} }) {
     const sales = getTransactionsInManilaRange(fromDateStr, toDateStr);
     const voids = getVoidsInManilaRange(fromDateStr, toDateStr);
+    const refunds = getRefundsInManilaRange(fromDateStr, toDateStr);
+    const kindOrder = { SALE: 0, VOID: 1, REFUND: 2 };
     const entries = []
         .concat(sales.map(t => ({ kind: 'SALE', invoiceNumberValue: t.birInvoiceNumberValue || 0, tx: t })))
         .concat(voids.map(v => ({ kind: 'VOID', invoiceNumberValue: v.invoiceNumberValue || 0, v })))
-        .sort((a, b) => a.invoiceNumberValue - b.invoiceNumberValue || (a.kind === 'VOID' ? 1 : -1));
+        .concat(refunds.map(r => ({ kind: 'REFUND', invoiceNumberValue: r.invoiceNumberValue || 0, r })))
+        .sort((a, b) => a.invoiceNumberValue - b.invoiceNumberValue || kindOrder[a.kind] - kindOrder[b.kind]);
 
     const lines = [];
     lines.push('='.repeat(64));
@@ -499,6 +566,7 @@ function exportEJournal({ fromDateStr, toDateStr, context = {} }) {
 
     let periodGross = 0;
     let periodVoidAmount = 0;
+    let periodRefundAmount = 0;
     for (const e of entries) {
         if (e.kind === 'SALE') {
             const t = e.tx;
@@ -515,18 +583,30 @@ function exportEJournal({ fromDateStr, toDateStr, context = {} }) {
             lines.push(`  Payment: ${t.method || (Array.isArray(t.payments) ? t.payments.map(p => p.method).join('+') : '')}`);
             lines.push('-'.repeat(64));
             periodGross = round2(periodGross + c.netSales);
-        } else {
+        } else if (e.kind === 'VOID') {
             const v = e.v;
             lines.push(`${v.invoiceNumber || '(no invoice #)'}  ${manilaDateTimeDisplay(v.voidedAt)}  *** VOID ***`);
             lines.push(`  Original Transaction: ${v.transactionId}  Amount: ${(parseFloat(v.amount) || 0).toFixed(2)}`);
-            lines.push(`  Voided by: ${v.voidedBy || ''}  Reason: ${v.reason || ''}`);
+            lines.push(`  Voided by: ${v.voidedBy || ''}  Approved by: ${v.approvedBy || ''}  Reason: ${v.reason || ''}`);
             lines.push('-'.repeat(64));
             periodVoidAmount = round2(periodVoidAmount + (parseFloat(v.amount) || 0));
+        } else {
+            const r = e.r;
+            lines.push(`${r.invoiceNumber || '(no invoice #)'}  ${manilaDateTimeDisplay(r.refundedAt)}  *** REFUND ${r.isFullRefund ? '(FULL)' : '(PARTIAL)'} ***`);
+            lines.push(`  Original Transaction: ${r.transactionId}  Original Amount: ${(parseFloat(r.originalAmount) || 0).toFixed(2)}`);
+            (r.items || []).forEach(it => {
+                lines.push(`  ${String(it.quantity)} x ${it.name}  @ ${(parseFloat(it.unitPrice) || 0).toFixed(2)}`);
+            });
+            lines.push(`  Refund Amount: ${(parseFloat(r.amount) || 0).toFixed(2)}`);
+            lines.push(`  Processed by: ${r.refundedBy || ''}  Approved by: ${r.approvedBy || ''}  Reason: ${r.reason || ''}`);
+            lines.push('-'.repeat(64));
+            periodRefundAmount = round2(periodRefundAmount + (parseFloat(r.amount) || 0));
         }
     }
     lines.push('');
     lines.push(`Period Net Sales: ${periodGross.toFixed(2)}`);
     lines.push(`Period Voids: ${voids.length} (${periodVoidAmount.toFixed(2)})`);
+    lines.push(`Period Refunds: ${refunds.length} (${periodRefundAmount.toFixed(2)})`);
     const state = getBirState();
     lines.push(`Current Accumulated Grand Total (AGT): ${state.agt.toFixed(2)}`);
     lines.push('='.repeat(64));
@@ -543,6 +623,7 @@ function csvEscape(val) {
 function exportSalesBookCsv({ fromDateStr, toDateStr }) {
     const sales = getTransactionsInManilaRange(fromDateStr, toDateStr);
     const voids = getVoidsInManilaRange(fromDateStr, toDateStr);
+    const refundsForBook = getRefundsInManilaRange(fromDateStr, toDateStr);
     const voidedByInvoiceValue = new Map(voids.map(v => [v.invoiceNumberValue, v]));
     const header = ['Date', 'Invoice No.', 'Customer', 'Gross Sales', 'VAT-Exempt Sales', 'Zero-Rated Sales', 'VATable Sales', 'VAT Amount', 'Discount', 'Net Sales', 'Payment Method', 'Cashier', 'Status', 'Notes'];
     const rows = [header];
@@ -570,6 +651,13 @@ function exportSalesBookCsv({ fromDateStr, toDateStr }) {
             manilaDateStr(v.voidedAt) || '', v.invoiceNumber || '', '', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', '', v.voidedBy || '', `VOID (${v.reason || ''})`, ''
         ]);
     });
+    refundsForBook.forEach(r => {
+        rows.push([
+            manilaDateStr(r.refundedAt) || '', r.invoiceNumber || '', '', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00', (-round2(r.amount)).toFixed(2), '', r.refundedBy || '',
+            `REFUND${r.isFullRefund ? ' (FULL)' : ' (PARTIAL)'} (${r.reason || ''})`,
+            `Refund of ${r.invoiceNumber || r.transactionId}; approved by ${r.approvedBy || ''}`
+        ]);
+    });
     return rows.map(r => r.map(csvEscape).join(',')).join('\n');
 }
 
@@ -578,6 +666,7 @@ function exportSalesBookCsv({ fromDateStr, toDateStr }) {
 function exportEIS({ fromDateStr, toDateStr, context = {} }) {
     const sales = getTransactionsInManilaRange(fromDateStr, toDateStr);
     const voids = getVoidsInManilaRange(fromDateStr, toDateStr);
+    const refundsForEis = getRefundsInManilaRange(fromDateStr, toDateStr);
     return {
         note: 'EIS-ready export only. Live transmission to the BIR Electronic Invoicing/Receipting System requires a direct EIS integration or an accredited service provider.',
         seller: { name: context.storeName || null, address: context.storeAddress || null, tin: context.tin || null },
@@ -614,8 +703,21 @@ function exportEIS({ fromDateStr, toDateStr, context = {} }) {
             originalTransactionId: v.transactionId,
             voidedAt: manilaDateTimeDisplay(v.voidedAt),
             voidedBy: v.voidedBy || null,
+            approvedBy: v.approvedBy || null,
             reason: v.reason || null,
             amount: round2(v.amount)
+        })),
+        refunds: refundsForEis.map(r => ({
+            invoiceNumber: r.invoiceNumber || null,
+            originalTransactionId: r.transactionId,
+            refundedAt: manilaDateTimeDisplay(r.refundedAt),
+            refundedBy: r.refundedBy || null,
+            approvedBy: r.approvedBy || null,
+            reason: r.reason || null,
+            isFullRefund: !!r.isFullRefund,
+            originalAmount: round2(r.originalAmount),
+            amount: round2(r.amount),
+            lineItems: (r.items || []).map(it => ({ description: it.name, quantity: it.quantity, unitPrice: round2(it.unitPrice), amount: round2((parseFloat(it.unitPrice) || 0) * (parseFloat(it.quantity) || 0)) }))
         }))
     };
 }
@@ -630,13 +732,16 @@ module.exports = {
     formatInvoiceNumber,
     onTransactionCommitted,
     onTransactionVoided,
+    onTransactionRefunded,
     performZReading,
     getZReadingHistory,
     resetAGT,
     getResetHistory,
     getVoidLog,
+    getRefundLog,
     getTransactionsInManilaRange,
     getVoidsInManilaRange,
+    getRefundsInManilaRange,
     manilaDateStr,
     exportEJournal,
     exportSalesBookCsv,

@@ -1423,7 +1423,7 @@
                     <h2 style="margin:22px 0 4px 7px;">Z-Reading History</h2>
                     <div class="table-container" style="margin-top:4px;">
                         <table class="data-table">
-                            <thead><tr><th>Z #</th><th>Performed</th><th>Beginning AGT</th><th>Ending AGT</th><th>Net Sales</th><th>Invoices</th><th>Voids</th><th></th></tr></thead>
+                            <thead><tr><th>Z #</th><th>Performed</th><th>Beginning AGT</th><th>Ending AGT</th><th>Net Sales</th><th>Invoices</th><th>Voids</th><th>Refunds</th><th></th></tr></thead>
                             <tbody id="bir-z-history-body"></tbody>
                         </table>
                     </div>
@@ -1431,8 +1431,16 @@
                     <h2 style="margin:22px 0 4px 7px;">Void Log</h2>
                     <div class="table-container" style="margin-top:4px;">
                         <table class="data-table">
-                            <thead><tr><th>Invoice No.</th><th>Transaction</th><th>Amount</th><th>Voided By</th><th>Voided At</th><th>Reason</th></tr></thead>
+                            <thead><tr><th>Invoice No.</th><th>Transaction</th><th>Amount</th><th>Voided By</th><th>Approved By</th><th>Voided At</th><th>Reason</th></tr></thead>
                             <tbody id="bir-void-log-body"></tbody>
+                        </table>
+                    </div>
+
+                    <h2 style="margin:22px 0 4px 7px;">Refund Log</h2>
+                    <div class="table-container" style="margin-top:4px;">
+                        <table class="data-table">
+                            <thead><tr><th>Invoice No.</th><th>Transaction</th><th>Refund Amount</th><th>Items</th><th>Processed By</th><th>Approved By</th><th>Refunded At</th><th>Reason</th></tr></thead>
+                            <tbody id="bir-refund-log-body"></tbody>
                         </table>
                     </div>
 
@@ -5955,7 +5963,7 @@
 })();
 </script>
 <script src="app.js?v=20261028-4"></script>
-<script src="app1.js?v=20261013-1"></script>
+<script src="app1.js?v=20261102-2"></script>
 <script src="marketplace-ui.js?v=20261013-1"></script>
 <script src="daily-digest-ui.js?v=20261027-1"></script>
 

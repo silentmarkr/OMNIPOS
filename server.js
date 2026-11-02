@@ -36,7 +36,7 @@ function createAsyncMutex() {
         chain = result.then(() => {}, () => {});
         return result;
     };
-} 
+}
 const transactionsMutexRunExclusive = createAsyncMutex();
 // Separate from transactionsMutexRunExclusive on purpose: attendance time-in/out is a distinct
 // domain from sales, so it gets its own lock instead of queueing behind checkout traffic.
@@ -13336,7 +13336,34 @@ function sendProductsLiteJson(req, res, liteJson) {
     }
     return res.type('application/json').send(liteJson);
 }
+// ARCHIVED (hidden) products: a variant that already has sales is hidden instead of deleted, so old receipts / BIR logs stay intact.
+// They are left out of the normal product list (POS, Products page, Barcode page) unless ?includeArchived=1.
+let archivedPresentCache = { at: 0, val: false };
+function productsHaveArchived(force) {
+    const now = Date.now();
+    if (!force && now - archivedPresentCache.at < 15000) return archivedPresentCache.val;
+    let v = false;
+    try { v = (readProductsNoImages() || []).some(p => p && p.archived); } catch (e) { v = false; }
+    archivedPresentCache = { at: now, val: v };
+    return v;
+}
+let archivedMemoSrc = null, archivedMemoOut = null;
+function hideArchivedJson(src) {
+    if (src === archivedMemoSrc && archivedMemoOut !== null) return archivedMemoOut;
+    let out = src;
+    try {
+        const arr = JSON.parse(src);
+        if (Array.isArray(arr)) out = JSON.stringify(arr.filter(p => !(p && p.archived)));
+    } catch (e) { out = src; }
+    archivedMemoSrc = src; archivedMemoOut = out;
+    return out;
+}
+function visibleLiteProducts() {
+    const l = readDataLite(FILE_PRODUCTS);
+    return Array.isArray(l) ? l.filter(p => !(p && p.archived)) : l;
+}
 app.get('/api/products', (req, res) => {
+    const hideArchived = !(req.query && String(req.query.includeArchived) === '1') && productsHaveArchived();
     // Product inventory is mutable; do not let browsers/proxies serve a stale
     // cached snapshot immediately after add/update/delete operations.
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -13352,16 +13379,17 @@ app.get('/api/products', (req, res) => {
     if (req.query && String(req.query.lite) === '1') {
         const view = getProductsView(false);
         if (view && view.liteJson) {
-            return sendProductsLiteJson(req, res, view.liteJson);
+            return sendProductsLiteJson(req, res, hideArchived ? hideArchivedJson(view.liteJson) : view.liteJson);
         }
     }
     // PERFORMANCE: ipadala nang diretso ang naka-serialize na products blob imbes na
     // i-JSON.parse (buong HD photo) at i-res.json (stringify ulit) sa bawat request.
     const rawProductsJson = getProductsRawJson();
     if (rawProductsJson) {
-        return res.type('application/json').send(rawProductsJson);
+        return res.type('application/json').send(hideArchived ? hideArchivedJson(rawProductsJson) : rawProductsJson);
     }
-    res.json(readData(FILE_PRODUCTS));
+    const allProductsList = readData(FILE_PRODUCTS);
+    res.json(hideArchived && Array.isArray(allProductsList) ? allProductsList.filter(p => !(p && p.archived)) : allProductsList);
 });
 // Kunin ang buong data (kasama ang photo) ng ISANG product lang — para sa Edit
 // form, imbes na i-download ang buong listahan ng lahat ng HD photo.
@@ -14230,6 +14258,7 @@ app.post('/api/products', requirePermission('products'), (req, res) => {
     if (addStockError) return res.status(400).json({ success: false, message: `❌ ${addStockError}` });
     delete product.batches; // batches are only created through the Batch/Lot endpoints
     delete product.stockBaseline;
+    delete product.recipe; delete product.recipeUpdatedAt; delete product.variantGroup; delete product.variantLabel; delete product.archived; delete product.archivedAt; delete product.archivedBy; // set only through the Recipe / Variants endpoints
     // BUGFIX: kapag number ang code (hal. 12345 mula sa API/import), nag-TypeError ang `.trim()` sa ibaba (500 error).
     // Ginagawang trimmed string ito bago gamitin.
     product.code = String(product.code).trim();
@@ -14308,6 +14337,7 @@ function processProductUpdate(req, res) {
     }
     const updStockError = validateIncomingStock(updatedData);
     if (updStockError) return res.status(400).json({ success: false, message: `❌ ${updStockError}` });
+    delete updatedData.recipe; delete updatedData.recipeUpdatedAt; delete updatedData.variantGroup; delete updatedData.variantLabel; delete updatedData.archived; delete updatedData.archivedAt; delete updatedData.archivedBy; // set only through the Recipe / Variants endpoints
     normalizeProductUomFields(updatedData);
     const username = req.authUser.username;
     let products = readProductsNoImages();
@@ -14342,6 +14372,566 @@ function processProductUpdate(req, res) {
         return res.json({ success: true, message:'Update request submitted for Admin approval' });
     }
 }
+// ===== BEGIN RECIPE / INGREDIENT TRACKING + PRODUCT VARIANTS =====================================================
+// RECIPE: a product can have `recipe: [{ code, qty }]` = ingredients used for ONE base unit sold. Selling it deducts the
+// ingredients (FEFO lots included) instead of its own stock. The recipe product's own `stock` is DERIVED ("how many can
+// I still make") and re-computed on every products write by the db.js before-write hook, so the POS, kiosk, low-stock
+// alerts and the stock check all keep working with no change.
+// VARIANTS: every variant (Size/Color...) is a normal product with its own code(barcode)/price/cost/stock, tied together by
+// `variantGroup` + `variantLabel`. Nothing in cart/stock/refund logic had to change.
+const RECIPE_MAX_LINES = 40;
+const VARIANT_MAX_PER_CALL = 30;
+function rcKey(code) { return String(code == null ? '' : code).trim().toLowerCase(); }
+function rcRound(n) { return Math.round((Number(n) || 0) * 1000) / 1000; }
+function productHasRecipe(p) { return !!(p && Array.isArray(p.recipe) && p.recipe.length > 0); }
+function rcIndex(list) {
+    const m = new Map();
+    for (const p of (Array.isArray(list) ? list : [])) if (p) m.set(rcKey(p.code), p);
+    return m;
+}
+// Ingredients needed to sell `baseQty` base units of a recipe product: [{ code, qty }]
+function recipeNeeds(prod, baseQty) {
+    const q = Number(baseQty) || 0;
+    if (!productHasRecipe(prod) || !(q > 0)) return [];
+    return prod.recipe
+        .map(l => ({ code: l.code, qty: rcRound((Number(l.qty) || 0) * q) }))
+        .filter(n => n.qty > 0);
+}
+// How many base units can still be made from the current ingredient stock (null = not a recipe product).
+function recipeMakeableCount(prod, index) {
+    if (!productHasRecipe(prod)) return null;
+    let best = Infinity;
+    for (const l of prod.recipe) {
+        const ing = index.get(rcKey(l.code));
+        const per = Number(l.qty) || 0;
+        if (!ing || !(per > 0)) return 0;
+        best = Math.min(best, Math.floor(((parseFloat(ing.stock) || 0) / per) + 1e-9));
+    }
+    return Number.isFinite(best) ? Math.max(0, best) : 0;
+}
+// Cost of ONE base unit of the recipe product, from the ingredient costs (0 when no ingredient has a cost).
+function recipeUnitCost(prod, index) {
+    if (!productHasRecipe(prod)) return 0;
+    let total = 0;
+    for (const l of prod.recipe) {
+        const ing = index.get(rcKey(l.code));
+        if (ing) total += (parseFloat(ing.cost) || 0) * (Number(l.qty) || 0);
+    }
+    return Math.round(total * 10000) / 10000;
+}
+// db.js calls this on the product list right before every products write: recipe products get their derived stock.
+function applyRecipeDerivedStock(list) {
+    if (!Array.isArray(list)) return;
+    if (!list.some(productHasRecipe)) return;
+    const index = rcIndex(list);
+    for (const p of list) {
+        if (!productHasRecipe(p)) continue;
+        const n = recipeMakeableCount(p, index);
+        if (n !== null && parseFloat(p.stock) !== n) p.stock = n;
+    }
+}
+require('./db').setProductsBeforeWriteHook(applyRecipeDerivedStock);
+
+// Validates a recipe sent by the client. Returns { ok:true, recipe:[{code,qty}] } or { ok:false, error }.
+function sanitizeRecipeInput(raw, products, selfProd) {
+    if (!Array.isArray(raw)) return { ok: false, error: 'The recipe must be a list of ingredients.' };
+    if (raw.length > RECIPE_MAX_LINES) return { ok: false, error: `A recipe can have at most ${RECIPE_MAX_LINES} ingredients.` };
+    const index = rcIndex(products);
+    const selfKey = rcKey(selfProd && selfProd.code);
+    const merged = new Map();
+    for (const line of raw) {
+        const key = rcKey(line && line.code);
+        if (!key) return { ok: false, error: 'An ingredient line has no product selected.' };
+        if (key === selfKey) return { ok: false, error: 'A product cannot be an ingredient of itself.' };
+        const ing = index.get(key);
+        if (!ing) return { ok: false, error: `Ingredient "${String(line.code).slice(0, 60)}" was not found in your products.` };
+        if (productHasRecipe(ing)) return { ok: false, error: `"${ing.name}" has its own recipe, so it cannot be used as an ingredient (no nested recipes).` };
+        const qtyText = String(line.qty == null ? '' : line.qty).trim();
+        const qty = qtyText === '' ? NaN : Number(qtyText);
+        if (!isFinite(qty) || qty <= 0) return { ok: false, error: `Enter a quantity greater than zero for "${ing.name}".` };
+        if (qty > 1000000) return { ok: false, error: `The quantity for "${ing.name}" is too large.` };
+        if (Math.abs(qty - rcRound(qty)) > 1e-9) return { ok: false, error: `"${ing.name}": at most 3 decimal places (use a smaller unit such as grams instead of kilos).` };
+        const prev = merged.get(key);
+        merged.set(key, { code: ing.code, qty: rcRound((prev ? prev.qty : 0) + qty) });
+    }
+    if (selfProd) {
+        // This product may not be an ingredient of another recipe while it has a recipe itself.
+        const usedBy = (Array.isArray(products) ? products : []).find(p => productHasRecipe(p) && rcKey(p.code) !== selfKey
+            && p.recipe.some(l => rcKey(l.code) === selfKey));
+        if (merged.size > 0 && usedBy) {
+            return { ok: false, error: `This product is used as an ingredient in the recipe of "${usedBy.name}", so it cannot have a recipe itself.` };
+        }
+    }
+    return { ok: true, recipe: Array.from(merged.values()) };
+}
+function recipeDetails(prod, products) {
+    const index = rcIndex(products);
+    const lines = (prod.recipe || []).map(l => {
+        const ing = index.get(rcKey(l.code));
+        return {
+            code: l.code,
+            qty: l.qty,
+            name: ing ? ing.name : '(deleted product)',
+            unit: ing && ing.baseUnit ? String(ing.baseUnit) : '',
+            stock: ing ? (parseFloat(ing.stock) || 0) : 0,
+            cost: ing ? (parseFloat(ing.cost) || 0) : 0,
+            missing: !ing
+        };
+    });
+    return {
+        lines,
+        unitCost: recipeUnitCost(prod, index),
+        canMake: recipeMakeableCount(prod, index)
+    };
+}
+function canApplyProductChangesDirectly(req) {
+    const isAdminRole = (req.authUser.role || '').toLowerCase() === 'admin';
+    return isAdminRole || !!getPermissionsForRole(req.authUser.role).products_direct_apply;
+}
+function findProductByCodeKey(products, code) {
+    const key = rcKey(code);
+    return (Array.isArray(products) ? products : []).find(p => rcKey(p && p.code) === key) || null;
+}
+
+app.get('/api/products/:code/recipe', requirePermission('products'), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const products = readProductsNoImages();
+    const prod = findProductByCodeKey(products, req.params.code);
+    if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    res.json({ success: true, hasRecipe: productHasRecipe(prod), ...recipeDetails(prod, products) });
+});
+app.put('/api/products/:code/recipe', requirePermission('products'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processRecipeUpdate(req, res));
+});
+function processRecipeUpdate(req, res) {
+    if (!canApplyProductChangesDirectly(req)) {
+        return res.status(403).json({ success: false, message: 'Only an Admin (or a user allowed to apply product changes directly) can change a recipe.' });
+    }
+    const products = readProductsNoImages();
+    const prod = findProductByCodeKey(products, req.params.code);
+    if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    const raw = req.body && req.body.recipe;
+    if (Array.isArray(raw) && raw.length === 0) {
+        delete prod.recipe;
+        delete prod.recipeUpdatedAt;
+        if (!writeData(FILE_PRODUCTS, products)) return res.status(500).json({ success: false, message: 'The recipe could not be saved. Please try again.' });
+        logAction(req.authUser.username, `Removed the recipe of product: ${prod.name} (${prod.code}). Its own stock is now managed manually again.`);
+        return res.json({ success: true, message: 'Recipe removed. This product now uses its own stock again.', hasRecipe: false, ...recipeDetails(prod, products) });
+    }
+    const check = sanitizeRecipeInput(raw, products, prod);
+    if (!check.ok) return res.status(400).json({ success: false, message: check.error });
+    prod.recipe = check.recipe;
+    prod.recipeUpdatedAt = new Date().toISOString(); // lets the tracker tell "sold before the recipe existed" from "no deduction recorded"
+    if (!writeData(FILE_PRODUCTS, products)) return res.status(500).json({ success: false, message: 'The recipe could not be saved. Please try again.' });
+    logAction(req.authUser.username, `Set the recipe of product: ${prod.name} (${prod.code}) — ${check.recipe.length} ingredient(s)`);
+    res.json({ success: true, message: 'Recipe saved.', hasRecipe: true, ...recipeDetails(prod, products) });
+}
+
+// ---- Variants --------------------------------------------------------------------------------------------------
+const VARIANT_CLONE_SKIP = new Set(['code', 'name', 'stock', 'stockBaseline', 'batches', 'image', 'images', 'imageVer', 'imageCount',
+    'priceLevelBarcodes', 'recipe', 'recipeUpdatedAt', 'variantGroup', 'variantLabel', 'barcode']);
+function variantGroupOf(p) { return p && p.variantGroup ? String(p.variantGroup) : ''; }
+function variantMembers(products, groupId) {
+    const g = String(groupId || '');
+    return (Array.isArray(products) ? products : []).filter(p => p && g && variantGroupOf(p) === g);
+}
+function variantCodeSlug(label) {
+    return String(label || '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20) || 'V';
+}
+const VARIANT_BAD_CODE_CHARS = /[\/\\?#%\s]/;
+// Builds the new variant products from the base product. Returns { ok:true, created:[product] } or { ok:false, error }.
+function buildVariantProducts(base, options, products, groupLabelsLower) {
+    if (!Array.isArray(options) || options.length === 0) return { ok: false, error: 'Add at least one variant.' };
+    if (options.length > VARIANT_MAX_PER_CALL) return { ok: false, error: `You can add at most ${VARIANT_MAX_PER_CALL} variants at a time.` };
+    const takenCodes = new Set((products || []).map(p => rcKey(p && p.code)));
+    const seenLabels = new Set(groupLabelsLower);
+    const created = [];
+    for (const opt of options) {
+        const label = String(opt && opt.label != null ? opt.label : '').trim();
+        if (!label) return { ok: false, error: 'Every variant needs a label (for example "Large" or "Red").' };
+        if (label.length > 40) return { ok: false, error: `The label "${label.slice(0, 20)}..." is too long (40 characters max).` };
+        if (seenLabels.has(label.toLowerCase())) return { ok: false, error: `The variant "${label}" already exists in this group.` };
+        seenLabels.add(label.toLowerCase());
+        let code = String(opt && opt.code != null ? opt.code : '').trim();
+        if (code) {
+            if (code.length > 60 || VARIANT_BAD_CODE_CHARS.test(code)) return { ok: false, error: `The code "${code.slice(0, 30)}" has spaces or special characters (/ \\ ? # %) or is too long.` };
+            if (takenCodes.has(rcKey(code))) return { ok: false, error: `The code "${code}" is already used by another product.` };
+        } else {
+            const stem = `${base.code}-${variantCodeSlug(label)}`;
+            code = stem;
+            for (let n = 2; takenCodes.has(rcKey(code)); n++) code = `${stem}-${n}`;
+        }
+        takenCodes.add(rcKey(code));
+        const priceText = String(opt && opt.price != null ? opt.price : '').trim();
+        const price = priceText === '' ? (parseFloat(base.price) || 0) : Number(priceText);
+        if (!isFinite(price) || price < 0) return { ok: false, error: `Invalid price for "${label}".` };
+        const costText = String(opt && opt.cost != null ? opt.cost : '').trim();
+        const cost = costText === '' ? null : Number(costText);
+        if (cost !== null && (!isFinite(cost) || cost < 0)) return { ok: false, error: `Invalid cost for "${label}".` };
+        const stockText = String(opt && opt.stock != null ? opt.stock : '').trim();
+        const stock = stockText === '' ? 0 : Number(stockText);
+        if (!isFinite(stock) || stock < 0) return { ok: false, error: `Invalid stock for "${label}".` };
+        if (!base.allowDecimal && Math.abs(stock - Math.round(stock)) > 1e-9) return { ok: false, error: `"${label}": stock must be a whole number.` };
+        const v = {};
+        for (const k of Object.keys(base)) if (!VARIANT_CLONE_SKIP.has(k)) v[k] = JSON.parse(JSON.stringify(base[k]));
+        v.code = code;
+        v.name = `${base.name} - ${label}`;
+        v.price = Math.round(price * 100) / 100;
+        if (cost !== null) v.cost = Math.round(cost * 10000) / 10000;
+        v.stock = rcRound(stock);
+        v.variantLabel = label;
+        created.push(v);
+    }
+    return { ok: true, created };
+}
+function variantSummary(products, groupId) {
+    return variantMembers(products, groupId).map(p => ({
+        code: p.code, name: p.name, label: p.variantLabel || '', price: parseFloat(p.price) || 0,
+        cost: (p.cost !== undefined && p.cost !== null && p.cost !== '') ? (parseFloat(p.cost) || 0) : null,
+        stock: parseFloat(p.stock) || 0,
+        archived: !!p.archived,
+        isBase: rcKey(p.code) === rcKey(groupId)
+    }));
+}
+// Keeps every variant group healthy after a delete / archive / restore:
+//  - a group left with a single product is dissolved (that product becomes a normal product again);
+//  - the group id must be the code of an ACTIVE member; if the base was removed or hidden, the group moves to the next active variant.
+// Mutates `products` in place and returns true when something changed.
+function variantNormalizeGroups(products) {
+    const list = Array.isArray(products) ? products : [];
+    const groups = new Map();
+    for (const p of list) {
+        const g = variantGroupOf(p);
+        if (!g) continue;
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(p);
+    }
+    let changed = false;
+    for (const [gid, members] of groups) {
+        if (members.length === 1) { delete members[0].variantGroup; delete members[0].variantLabel; changed = true; continue; }
+        const active = members.filter(m => !m.archived);
+        if (!active.length) continue;
+        if (!active.some(m => rcKey(m.code) === rcKey(gid))) {
+            const newId = String(active[0].code);
+            members.forEach(m => { m.variantGroup = newId; });
+            changed = true;
+        }
+    }
+    return changed;
+}
+function variantProductHasSales(code) {
+    const key = rcKey(code);
+    let rows = null;
+    try { rows = readData(FILE_TRANSACTIONS, []); } catch (e) { rows = null; }
+    if (!Array.isArray(rows)) return true; // cannot tell -> treat as "has sales" so nothing is lost
+    return rows.some(tx => tx && Array.isArray(tx.items) && tx.items.some(it => it && rcKey(it.code) === key));
+}
+app.get('/api/products/:code/variants', requirePermission('products'), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const products = readProductsNoImages();
+    const prod = findProductByCodeKey(products, req.params.code);
+    if (!prod) return res.status(404).json({ success: false, message: 'Product not found.' });
+    const group = variantGroupOf(prod);
+    res.json({ success: true, group, baseCode: prod.code, baseName: prod.name, hasGroup: !!group, canManage: canApplyProductChangesDirectly(req), members: group ? variantSummary(products, group) : [] });
+});
+app.post('/api/products/:code/variants', requirePermission('products'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processVariantCreate(req, res));
+});
+function processVariantCreate(req, res) {
+    if (!canApplyProductChangesDirectly(req)) {
+        return res.status(403).json({ success: false, message: 'Only an Admin (or a user allowed to apply product changes directly) can create variants.' });
+    }
+    const products = readProductsNoImages();
+    const base = findProductByCodeKey(products, req.params.code);
+    if (!base) return res.status(404).json({ success: false, message: 'Product not found.' });
+    const groupId = variantGroupOf(base) || String(base.code);
+    const members = variantMembers(products, groupId);
+    const baseLabelIn = String((req.body && req.body.baseLabel) || '').trim().slice(0, 40);
+    const baseLabel = base.variantLabel || baseLabelIn || 'Standard';
+    const labelsLower = members.filter(m => m !== base).map(m => String(m.variantLabel || '').toLowerCase());
+    labelsLower.push(baseLabel.toLowerCase());
+    const built = buildVariantProducts(base, req.body && req.body.variants, products, labelsLower);
+    if (!built.ok) return res.status(400).json({ success: false, message: built.error });
+    base.variantGroup = groupId;
+    if (!base.variantLabel) base.variantLabel = baseLabel;
+    for (const v of built.created) { v.variantGroup = groupId; products.push(v); }
+    if (!writeData(FILE_PRODUCTS, products)) return res.status(500).json({ success: false, message: 'The variants could not be saved. Please try again.' });
+    logAction(req.authUser.username, `Created ${built.created.length} variant(s) of product: ${base.name} (${base.code})`);
+    res.json({ success: true, message: `${built.created.length} variant(s) created.`, group: groupId, members: variantSummary(products, groupId) });
+}
+
+// ---- Remove / hide / restore / ungroup a variant ----------------------------------------------------------------
+function variantAfterChange(products, memberCodes, fallbackCode) {
+    const keys = new Set(memberCodes.map(rcKey));
+    const alive = products.find(p => p && keys.has(rcKey(p.code)) && variantGroupOf(p));
+    const gid = alive ? variantGroupOf(alive) : '';
+    const members = gid ? variantSummary(products, gid) : [];
+    const active = members.filter(m => !m.archived);
+    return { group: gid, members, lastActive: (active.length === 1 && members.length > 1) ? active[0].code : null, nextCode: (alive ? alive.code : fallbackCode) };
+}
+app.post('/api/products/:code/variants/remove', requirePermission('products'), rateLimit('variant-remove', 20, 10 * 60 * 1000), async (req, res) => {
+    await transactionsMutexRunExclusive(() => processVariantRemove(req, res));
+});
+async function processVariantRemove(req, res) {
+    if (!canApplyProductChangesDirectly(req)) {
+        return res.status(403).json({ success: false, message: 'Only an Admin (or a user allowed to apply product changes directly) can remove variants.' });
+    }
+    const username = req.authUser.username;
+    let products = readProductsNoImages();
+    let target = findProductByCodeKey(products, req.params.code);
+    if (!target) return res.status(404).json({ success: false, message: 'Product not found.' });
+    const group = variantGroupOf(target);
+    if (!group) return res.status(400).json({ success: false, message: 'This product is not part of a variant group.' });
+    const key = rcKey(target.code);
+    const memberCodes = variantMembers(products, group).map(m => String(m.code));
+    const mode = (req.body && req.body.mode === 'archive') ? 'archive' : 'auto';
+    const hasSales = mode === 'archive' ? true : variantProductHasSales(target.code);
+    if (!hasSales) {
+        // Never sold: really delete it (needs an Admin / "product_delete_own_password" password, same as deleting a product).
+        const usedIn = products.find(p => productHasRecipe(p) && rcKey(p.code) !== key && p.recipe.some(l => rcKey(l.code) === key));
+        if (usedIn) {
+            return res.status(409).json({ success: false, code: 'USED_IN_RECIPE', message: `This variant is an ingredient in the recipe of "${usedIn.name}". Remove it from that recipe first, or choose "Hide only".` });
+        }
+        const pw = req.body && req.body.adminPassword;
+        if (!pw || typeof pw !== 'string') {
+            return res.status(428).json({ success: false, code: 'PASSWORD_REQUIRED', message: 'Enter an Admin password to delete this variant.' });
+        }
+        const users = readData(FILE_USERS);
+        const auth = await findProductDeleteAuthorizer(users, pw);
+        if (!auth) return res.status(403).json({ success: false, code: 'WRONG_ADMIN_PASSWORD', message: 'Incorrect password. The variant was not deleted.' });
+        products = readProductsNoImages(); // the bcrypt await above: read the catalog again before writing
+        target = findProductByCodeKey(products, req.params.code);
+        if (!target) return res.status(404).json({ success: false, message: 'Product not found.' });
+        const name = target.name;
+        products = products.filter(p => rcKey(p && p.code) !== key);
+        variantNormalizeGroups(products);
+        if (!writeData(FILE_PRODUCTS, products)) return res.status(500).json({ success: false, message: 'The variant could not be deleted. Please try again.' });
+        logAction(username, `Deleted variant: ${name} (${req.params.code}) — never sold (${auth.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${auth.user.username}, RBAC)`})`);
+        productsHaveArchived(true);
+        scheduleDatabaseCompaction('variant delete', 1500);
+        return res.json({ success: true, action: 'deleted', message: 'Variant deleted.', ...variantAfterChange(products, memberCodes, null) });
+    }
+    // Has sales (or "Hide only"): hide it. Old receipts, refunds and BIR logs keep working.
+    target.archived = true;
+    target.archivedAt = new Date().toISOString();
+    target.archivedBy = username;
+    variantNormalizeGroups(products);
+    if (!writeData(FILE_PRODUCTS, products)) return res.status(500).json({ success: false, message: 'The variant could not be hidden. Please try again.' });
+    logAction(username, `Hid (archived) variant: ${target.name} (${target.code})${mode === 'archive' ? '' : ' — it has sales history'}`);
+    productsHaveArchived(true);
+    res.json({ success: true, action: 'archived', message: 'Variant hidden. It no longer shows in the POS, Products or Barcode lists, but past sales are kept. You can restore it any time.', ...variantAfterChange(products, memberCodes, null) });
+}
+app.post('/api/products/:code/variants/restore', requirePermission('products'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => {
+        if (!canApplyProductChangesDirectly(req)) return res.status(403).json({ success: false, message: 'Only an Admin (or a user allowed to apply product changes directly) can restore variants.' });
+        const products = readProductsNoImages();
+        const target = findProductByCodeKey(products, req.params.code);
+        if (!target) return res.status(404).json({ success: false, message: 'Product not found.' });
+        if (!target.archived) return res.status(400).json({ success: false, message: 'This variant is not hidden.' });
+        const group = variantGroupOf(target);
+        const memberCodes = group ? variantMembers(products, group).map(m => String(m.code)) : [String(target.code)];
+        delete target.archived; delete target.archivedAt; delete target.archivedBy;
+        variantNormalizeGroups(products);
+        if (!writeData(FILE_PRODUCTS, products)) return res.status(500).json({ success: false, message: 'The variant could not be restored. Please try again.' });
+        logAction(req.authUser.username, `Restored hidden variant: ${target.name} (${target.code})`);
+        productsHaveArchived(true);
+        res.json({ success: true, message: 'Variant restored.', ...variantAfterChange(products, memberCodes, target.code) });
+    });
+});
+app.post('/api/products/:code/variants/ungroup', requirePermission('products'), async (req, res) => {
+    await transactionsMutexRunExclusive(() => {
+        if (!canApplyProductChangesDirectly(req)) return res.status(403).json({ success: false, message: 'Only an Admin (or a user allowed to apply product changes directly) can change variant groups.' });
+        const products = readProductsNoImages();
+        const target = findProductByCodeKey(products, req.params.code);
+        if (!target) return res.status(404).json({ success: false, message: 'Product not found.' });
+        const group = variantGroupOf(target);
+        if (!group) return res.status(400).json({ success: false, message: 'This product is not part of a variant group.' });
+        const otherActive = variantMembers(products, group).filter(m => m !== target && !m.archived);
+        if (otherActive.length) return res.status(400).json({ success: false, message: 'Other variants in this group are still active. Remove or hide them first.' });
+        delete target.variantGroup; delete target.variantLabel;
+        variantNormalizeGroups(products);
+        if (!writeData(FILE_PRODUCTS, products)) return res.status(500).json({ success: false, message: 'The change could not be saved. Please try again.' });
+        logAction(req.authUser.username, `Turned variant back into a normal product: ${target.name} (${target.code})`);
+        res.json({ success: true, message: `"${target.name}" is a normal product again.` });
+    });
+});
+
+// ---- Tracker (read-only): shows whether recipes really deduct ingredients, and how variants are doing ------------------
+// Built from records that already exist (products + the recipeUsage saved on every sale line), so it never changes stock.
+function rvTxTime(tx) {
+    const at = tx && (tx.isoDate || tx.createdAt || tx.date || tx.timestamp || tx.isoTimestamp);
+    const t = new Date(at).getTime();
+    return { at, t };
+}
+app.get('/api/recipe-variant-tracker', requirePermission('products'), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30));
+    const want = rcKey(req.query.code);
+    const startToday = new Date(); startToday.setHours(0, 0, 0, 0);
+    const fromMs = startToday.getTime() - (days - 1) * 24 * 60 * 60 * 1000;
+    const toMs = Date.now() + 24 * 60 * 60 * 1000;
+    const products = readProductsNoImages();
+    const index = rcIndex(products);
+
+    // 1) One pass over the sales of the period
+    const sold = new Map();            // product code -> { qty, gross }
+    const logAll = [];                 // recipe sales that deducted ingredients
+    const missingByRecipe = new Map(); // recipe code -> { count, txIds[] } (sold after the recipe was set, nothing deducted)
+    const rows = readRowsInIsoWindow(FILE_TRANSACTIONS, 'isoDate', fromMs, toMs) || readData(FILE_TRANSACTIONS, []);
+    for (const tx of (Array.isArray(rows) ? rows : [])) {
+        const { at, t } = rvTxTime(tx);
+        if (isNaN(t) || t < fromMs || t > toMs) continue;
+        for (const item of (Array.isArray(tx.items) ? tx.items : [])) {
+            if (!item) continue;
+            const key = rcKey(item.code);
+            const base = (typeof item.baseQty === 'number') ? item.baseQty : (parseFloat(item.quantity) || 0);
+            const lineGross = Math.max(0, (parseFloat(item.price) || 0) * (parseFloat(item.quantity) || 0) - (parseFloat(item.itemDiscount) || 0));
+            const agg = sold.get(key) || { qty: 0, gross: 0 };
+            agg.qty += base; agg.gross += lineGross;
+            sold.set(key, agg);
+            const prod = index.get(key);
+            if (Array.isArray(item.recipeUsage) && item.recipeUsage.length) {
+                logAll.push({
+                    ts: t, at, txId: tx.id || '', cashier: tx.cashier || '', code: item.code, name: item.name || (prod && prod.name) || item.code,
+                    qty: rcRound(base),
+                    lines: item.recipeUsage.map(u => ({
+                        code: u.code, name: u.name || '', unit: u.unit || ((index.get(rcKey(u.code)) || {}).baseUnit || ''),
+                        qty: rcRound(parseFloat(u.qty) || 0),
+                        before: (u.stockBefore === undefined || u.stockBefore === null) ? null : rcRound(u.stockBefore),
+                        after: (u.stockAfter === undefined || u.stockAfter === null) ? null : rcRound(u.stockAfter)
+                    }))
+                });
+            } else if (prod && productHasRecipe(prod) && prod.recipeUpdatedAt) {
+                const since = new Date(prod.recipeUpdatedAt).getTime();
+                if (!isNaN(since) && t >= since) {
+                    const m = missingByRecipe.get(key) || { count: 0, txIds: [] };
+                    m.count++; if (m.txIds.length < 10) m.txIds.push(tx.id || '');
+                    missingByRecipe.set(key, m);
+                }
+            }
+        }
+    }
+    logAll.sort((a, b) => b.ts - a.ts);
+    const logFiltered = want ? logAll.filter(e => rcKey(e.code) === want || e.lines.some(l => rcKey(l.code) === want)) : logAll;
+
+    // 2) Ingredient usage totals (from the filtered log)
+    const usageMap = new Map();
+    for (const e of logFiltered) for (const l of e.lines) {
+        const k = rcKey(l.code);
+        const u = usageMap.get(k) || { code: l.code, name: l.name, unit: l.unit, qty: 0, sales: 0 };
+        u.qty = rcRound(u.qty + l.qty); u.sales++;
+        usageMap.set(k, u);
+    }
+    const usage = Array.from(usageMap.values()).map(u => {
+        const ing = index.get(rcKey(u.code));
+        return { ...u, name: (ing && ing.name) || u.name, stock: ing ? (parseFloat(ing.stock) || 0) : 0, missing: !ing };
+    }).sort((a, b) => b.qty - a.qty);
+
+    // 3) Recipes
+    const recipes = [];
+    for (const prod of products) {
+        if (!productHasRecipe(prod)) continue;
+        const key = rcKey(prod.code);
+        if (want && key !== want && !prod.recipe.some(l => rcKey(l.code) === want)) continue;
+        const lines = prod.recipe.map(l => {
+            const ing = index.get(rcKey(l.code));
+            const per = Number(l.qty) || 0;
+            const stock = ing ? (parseFloat(ing.stock) || 0) : 0;
+            return {
+                code: l.code, name: ing ? ing.name : '(deleted product)', unit: ing && ing.baseUnit ? String(ing.baseUnit) : '',
+                qty: per, stock, cost: ing ? (parseFloat(ing.cost) || 0) : 0, missing: !ing,
+                makes: (ing && per > 0) ? Math.max(0, Math.floor(stock / per + 1e-9)) : 0
+            };
+        });
+        const canMake = recipeMakeableCount(prod, index);
+        const unitCost = recipeUnitCost(prod, index);
+        const price = parseFloat(prod.price) || 0;
+        let bottleneck = '';
+        if (lines.length) bottleneck = lines.reduce((a, b) => (b.makes < a.makes ? b : a)).code;
+        const missing = missingByRecipe.get(key);
+        const hasMissingIng = lines.some(l => l.missing);
+        recipes.push({
+            code: prod.code, name: prod.name, price, unitCost, margin: (price > 0 && unitCost > 0) ? Math.round((1 - unitCost / price) * 100) : null,
+            canMake, storedStock: parseFloat(prod.stock) || 0, bottleneck, lines,
+            status: hasMissingIng ? 'broken' : (canMake <= 0 ? 'out' : (canMake <= 5 ? 'low' : 'ok')),
+            recipeUpdatedAt: prod.recipeUpdatedAt || null,
+            soldQty: rcRound((sold.get(key) || { qty: 0 }).qty),
+            deductions: logAll.filter(e => rcKey(e.code) === key).length,
+            lastDeductionAt: (logAll.find(e => rcKey(e.code) === key) || {}).at || null,
+            notDeducted: missing ? missing.count : 0,
+            notDeductedTx: missing ? missing.txIds : []
+        });
+    }
+    recipes.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+    // 4) Variant groups
+    const groups = new Map();
+    for (const p of products) {
+        const g = variantGroupOf(p);
+        if (!g) continue;
+        (groups.get(g) || groups.set(g, []).get(g)).push(p);
+    }
+    const variants = [];
+    for (const [g, list] of groups) {
+        if (want && !list.some(p => rcKey(p.code) === want)) continue;
+        const baseP = list.find(p => rcKey(p.code) === rcKey(g)) || list[0];
+        const members = list.map(p => {
+            const s = sold.get(rcKey(p.code)) || { qty: 0, gross: 0 };
+            return {
+                code: p.code, name: p.name, label: p.variantLabel || '', price: parseFloat(p.price) || 0,
+                cost: (p.cost !== undefined && p.cost !== null && p.cost !== '') ? (parseFloat(p.cost) || 0) : null,
+                stock: parseFloat(p.stock) || 0, soldQty: rcRound(s.qty), gross: Math.round(s.gross * 100) / 100,
+                hasRecipe: productHasRecipe(p), printable: /^[\x20-\x7E]+$/.test(String(p.code))
+            };
+        });
+        const issues = [];
+        if (members.length < 2) issues.push('Only one product is in this group.');
+        const bad = members.filter(m => !m.printable);
+        if (bad.length) issues.push(`Code with unsupported characters (cannot be printed as a barcode): ${bad.map(m => m.code).join(', ')}`);
+        const noPrice = members.filter(m => !(m.price > 0));
+        if (noPrice.length) issues.push(`No price: ${noPrice.map(m => m.label || m.code).join(', ')}`);
+        const outs = members.filter(m => !m.hasRecipe && m.stock <= 0);
+        if (outs.length) issues.push(`Out of stock: ${outs.map(m => m.label || m.code).join(', ')}`);
+        variants.push({
+            group: g, baseCode: baseP.code, baseName: baseP.name, members, issues,
+            totalStock: rcRound(members.filter(m => !m.hasRecipe).reduce((a, m) => a + m.stock, 0)),
+            totalSold: rcRound(members.reduce((a, m) => a + m.soldQty, 0)),
+            totalGross: Math.round(members.reduce((a, m) => a + m.gross, 0) * 100) / 100
+        });
+    }
+    variants.sort((a, b) => String(a.baseName).localeCompare(String(b.baseName)));
+
+    // 5) Voided AFTER the food was prepared: the ingredients are gone and were logged as waste (see processVoidTransaction).
+    // Voids of unprepared orders put the ingredients back, so those sales simply disappear from the log above.
+    const voidMap = new Map();
+    for (const w of readData(FILE_WASTE_LOG, [])) {
+        if (!w || w.source !== 'void_consumed') continue;
+        const wt = new Date(w.recordedAt).getTime();
+        if (isNaN(wt) || wt < fromMs || wt > toMs) continue;
+        if (want && rcKey(w.code) !== want && !String(w.reason || '').toLowerCase().includes(want)) continue;
+        const k = String(w.sourceTransactionId || w.id);
+        const g = voidMap.get(k) || { txId: w.sourceTransactionId || '', at: w.recordedAt, by: w.recordedBy || '', cost: 0, lines: [] };
+        g.cost = Math.round((g.cost + (parseFloat(w.costImpact) || 0)) * 100) / 100;
+        g.lines.push({ code: w.code, name: w.name || '', unit: w.unit || '', qty: rcRound(parseFloat(w.quantity) || 0) });
+        voidMap.set(k, g);
+    }
+    const voidWaste = Array.from(voidMap.values()).sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 100);
+    const voidWasteCost = Math.round(Array.from(voidMap.values()).reduce((a, g) => a + g.cost, 0) * 100) / 100;
+
+    const LOG_CAP = 300;
+    res.json({
+        success: true, days, from: new Date(fromMs).toISOString(), to: new Date().toISOString(), code: req.query.code ? String(req.query.code) : '',
+        summary: {
+            recipes: recipes.length, recipesBroken: recipes.filter(r => r.status === 'broken' || r.status === 'out').length,
+            deductions: logFiltered.length, notDeducted: recipes.reduce((a, r) => a + r.notDeducted, 0),
+            variantGroups: variants.length, variantProducts: variants.reduce((a, v) => a + v.members.length, 0),
+            voidWasteSales: voidMap.size, voidWasteCost
+        },
+        voidWaste, recipes, usage, log: logFiltered.slice(0, LOG_CAP).map(({ ts, ...rest }) => rest), logTotal: logFiltered.length, logTruncated: logFiltered.length > LOG_CAP,
+        variants
+    });
+});
+// ===== END RECIPE / INGREDIENT TRACKING + PRODUCT VARIANTS =======================================================
 app.delete('/api/products/:code', requirePermission('products'), rateLimit('product-delete', 15, 10 * 60 * 1000), async (req, res) => {
     return transactionsMutexRunExclusive(() => processProductDelete(req, res));
 });
@@ -14378,13 +14968,20 @@ async function processProductDelete(req, res) {
         if (!products.some(p => productCodeKey(p) === codeKey)) {
             return res.status(404).json({ success: false, message:'Product not found.' });
         }
+        {   // RECIPE: an ingredient that is still used in a recipe cannot be deleted (the recipe would silently break).
+            const usedIn = products.find(p => productHasRecipe(p) && productCodeKey(p) !== codeKey && p.recipe.some(l => rcKey(l.code) === codeKey));
+            if (usedIn) {
+                return res.status(409).json({ success: false, code: 'USED_IN_RECIPE', message: `This product is an ingredient in the recipe of "${usedIn.name}". Remove it from that recipe first, then delete it.` });
+            }
+        }
         products = products.filter(p => productCodeKey(p) !== codeKey);
+        variantNormalizeGroups(products); // deleting a variant (or the group's base) must not leave a broken variant group
         writeData(FILE_PRODUCTS, products);
         logAction(username, `Deleted product code: ${code} (${authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`})`);
         // Return the exact post-delete catalog so the Product page can update
         // from the same authoritative snapshot without a second GET race.
         scheduleDatabaseCompaction('product delete', 1500);
-        return res.json({ success: true, message:'Product deleted successfully', products: readDataLite(FILE_PRODUCTS) });
+        return res.json({ success: true, message:'Product deleted successfully', products: visibleLiteProducts() });
     } else {
         let requests = readData(FILE_REQUESTS);
         requests.push({ id: Date.now(), type:'DELETE', targetCode: code, requester: username, timestamp: new Date().toLocaleString() });
@@ -14462,6 +15059,7 @@ async function processProductBulkDelete(req, res) {
         const deleteKeys = new Set(existingCodes.map(c => normalizeProductCodeKey(c)));
         const deletedProducts = products.filter(p => p && p.code != null && deleteKeys.has(normalizeProductCodeKey(p.code)));
         const remaining = products.filter(p => !(p && p.code != null && deleteKeys.has(normalizeProductCodeKey(p.code))));
+        variantNormalizeGroups(remaining);
         if (writeData(FILE_PRODUCTS, remaining) === false) {
             return res.status(500).json({ success: false, message: 'Could not save the deletion to the local database. No product was removed — please try again.' });
         }
@@ -14476,7 +15074,7 @@ async function processProductBulkDelete(req, res) {
             // Full records (without photos) so the browser can build a complete backup CSV.
             deletedProducts,
             message: `${existingCodes.length} product(s) deleted successfully.`,
-            products: readDataLite(FILE_PRODUCTS)
+            products: visibleLiteProducts()
         });
 
     }
@@ -14689,7 +15287,7 @@ app.post('/api/products/bulk-photos', rateLimit('product-bulk-photos', 10, 10 * 
             applied,
             unmatched,
             failed,
-            products: readDataLite(FILE_PRODUCTS)
+            products: visibleLiteProducts()
         });
     } catch (err) {
         console.error('Bulk photo upload error:', err);
@@ -14970,7 +15568,7 @@ app.post('/api/products/bulk-image-search/apply', rateLimit('product-bulk-image-
         logAction(username, `Bulk Search Images: naglapat ng ${applied.length} auto-search product photo(s) (${failed.length} nabigo).`);
         scheduleDatabaseCompaction('bulk image search apply', 1500);
     }
-    res.json({ success: true, appliedCount: applied.length, failedCount: failed.length, applied, failed, products: readDataLite(FILE_PRODUCTS) });
+    res.json({ success: true, appliedCount: applied.length, failedCount: failed.length, applied, failed, products: visibleLiteProducts() });
 });
 app.post('/api/products/omni-image-search', rateLimit('product-omni-image-search', 5, 60 * 60 * 1000), requirePermission('products'), async (req, res) => {
     const onlyMissing = req.body?.onlyMissing !== false;
@@ -15270,6 +15868,7 @@ function processRequestResolve(req, res) {
             }
             else if (targetReq.type ==='DELETE') {
                 products = products.filter(p => normalizeProductCodeKey(p.code) !== normalizeProductCodeKey(targetReq.targetCode));
+                variantNormalizeGroups(products);
                 logAction(username, `APPROVED DELETE Request for code: ${targetReq.targetCode}`);
             }
             else if (targetReq.type ==='RESTOCK') {
@@ -15553,9 +16152,26 @@ async function processTransaction(req, res) {
             rejectedItems.push(resolved.error);
             continue;
         }
-        requestedBaseQtyByCode[prod.code] = uomPricing.round(
-            (requestedBaseQtyByCode[prod.code] || 0) + resolved.baseQty, uomPricing.DECIMAL_PLACES
-        );
+        if (productHasRecipe(prod)) {
+            // Recipe product: its ingredients are what runs out (its own stock is only a derived "can make" number).
+            for (const need of recipeNeeds(prod, resolved.baseQty)) {
+                const ingProd = findProductByCodeKey(products, need.code);
+                if (!ingProd) { rejectedItems.push(`${prod.name}: its ingredient "${need.code}" no longer exists (fix the recipe)`); continue; }
+                const ingCode = ingProd.code;
+                requestedBaseQtyByCode[ingCode] = uomPricing.round(
+                    (requestedBaseQtyByCode[ingCode] || 0) + need.qty, uomPricing.DECIMAL_PLACES
+                );
+            }
+        } else {
+            requestedBaseQtyByCode[prod.code] = uomPricing.round(
+                (requestedBaseQtyByCode[prod.code] || 0) + resolved.baseQty, uomPricing.DECIMAL_PLACES
+            );
+        }
+        let lineCost = resolved.cost;
+        if (productHasRecipe(prod)) {
+            const rcUnit = recipeUnitCost(prod, rcIndex(products));
+            if (rcUnit > 0) lineCost = Math.round(rcUnit * (resolved.baseQty / resolved.quantity) * 10000) / 10000;
+        }
         resolvedItems.push({
             code: resolved.code,
             name: resolved.name,
@@ -15566,7 +16182,7 @@ async function processTransaction(req, res) {
             baseQty: resolved.baseQty,
             priceLevel: resolved.priceLevel,
             itemDiscount: resolved.itemDiscount,
-            cost: resolved.cost
+            cost: lineCost
         });
     }
     if (rejectedItems.length === 0) {
@@ -15875,8 +16491,24 @@ async function processTransaction(req, res) {
     transaction.items.forEach(item => {
         // Lot info is server-owned: never trust a client-supplied value.
         delete item.batchAllocations;
+        delete item.recipeUsage; // server-owned
         const prod = products.find(p => p.code === item.code);
-        if (prod) {
+        if (prod && productHasRecipe(prod)) {
+            // Recipe product: take the ingredients out of stock (FEFO lots included). Remember what was used so a VOID can return it.
+            const deductBase = (typeof item.baseQty === 'number') ? item.baseQty : item.quantity;
+            const usage = [];
+            for (const need of recipeNeeds(prod, deductBase)) {
+                const ingProd = findProductByCodeKey(products, need.code);
+                if (!ingProd) continue;
+                const stockBefore = parseFloat(ingProd.stock) || 0;
+                const ingAllocs = normalizeAllocations(deductProductStock(ingProd, need.qty));
+                // Record what was REALLY taken (an offline-synced sale may have found less in stock than the recipe needs),
+                // so a later void never returns more than was deducted.
+                const used = rcRound(stockBefore - (parseFloat(ingProd.stock) || 0));
+                if (used > 1e-9) usage.push({ code: ingProd.code, name: ingProd.name, unit: ingProd.baseUnit ? String(ingProd.baseUnit) : '', qty: used, stockBefore: rcRound(stockBefore), stockAfter: rcRound(parseFloat(ingProd.stock) || 0), batchAllocations: ingAllocs });
+            }
+            if (usage.length) item.recipeUsage = usage;
+        } else if (prod) {
             const deduct = (typeof item.baseQty === 'number') ? item.baseQty : item.quantity;
             const lotAllocations = normalizeAllocations(deductProductStock(prod, deduct));
             // Remember the lot(s)/expiry this line was taken from so a void/refund can return it to the same lot.
@@ -17535,6 +18167,29 @@ function execAsync(cmd, opts = {}) {
         });
     });
 }
+// EMBEDDED MODE (OmniPOS native Android app): the server runs inside the app, with no Termux, so there is no
+// `unzip` and no `npm`. The app sets OMNIPOS_EMBEDDED=1. Updates then extract the zip in JavaScript and
+// cannot run `npm install` (an update that changes the libraries needs a new app version instead).
+const EMBEDDED_RUNTIME = process.env.OMNIPOS_EMBEDDED === '1';
+async function extractZipSafe(zipPath, destDir) {
+    const JSZip = require('jszip');
+    const zip = await JSZip.loadAsync(fs.readFileSync(zipPath));
+    const root = path.resolve(destDir) + path.sep;
+    for (const name of Object.keys(zip.files)) {
+        const entry = zip.files[name];
+        const clean = name.replace(/\\/g, '/');
+        const target = path.resolve(destDir, clean);
+        if (target !== path.resolve(destDir) && !target.startsWith(root)) {
+            throw new Error('Unsafe path in the update package: ' + name);
+        }
+        if (entry.dir) {
+            fs.mkdirSync(target, { recursive: true });
+        } else {
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, await entry.async('nodebuffer'));
+        }
+    }
+}
 let selfUpdateInProgress = false;
 let selfUpdateStartedAt = 0;
 const SELF_UPDATE_STALE_MS = 20 * 60 * 1000;
@@ -17663,7 +18318,8 @@ async function runSelfUpdateFromRelay(req, res) {
         jobAdvanceStep(jobId,'extract','Extracting the update package...', 40);
         fs.mkdirSync(extractDir, { recursive: true });
         try {
-            await execAsync(`unzip -o "${zipPath}" -d "${extractDir}"`, { timeout: 3 * 60 * 1000 });
+            if (EMBEDDED_RUNTIME) await extractZipSafe(zipPath, extractDir);
+            else await execAsync(`unzip -o "${zipPath}" -d "${extractDir}"`, { timeout: 3 * 60 * 1000 });
         } catch (unzipErr) {
             throw new Error(`Hindi ma-extract ang release package. Siguraduhing naka-install ang "unzip" sa Termux ("pkg install unzip -y"). Detalye: ${unzipErr.message}`);
         }
@@ -17684,7 +18340,7 @@ async function runSelfUpdateFromRelay(req, res) {
         for (const jsName of ['server.js', 'db.js']) {
             const jsPath = path.join(packageRoot, jsName);
             if (!fs.existsSync(jsPath)) continue;
-            try { await execAsync(`node --check "${jsPath}"`, { timeout: 60 * 1000 }); }
+            try { await execAsync(`"${EMBEDDED_RUNTIME ? process.execPath : 'node'}" --check "${jsPath}"`, { timeout: 60 * 1000 }); }
             catch (syntaxErr) { throw new Error(`May syntax error ang ${jsName} sa bagong release package — kinansela ang update, walang nabago sa system. ${String(syntaxErr.stderr || syntaxErr.message).split('\n').slice(0, 3).join(' ')}`); }
         }
         {
@@ -17698,6 +18354,17 @@ async function runSelfUpdateFromRelay(req, res) {
             }
             if (missingLocal.length) {
                 throw new Error(`Kulang ang mga file sa release package: ${missingLocal.join(', ')}. Kinansela ang update para hindi mag-crash ang system; walang nabago.`);
+            }
+        }
+        if (EMBEDDED_RUNTIME) {
+            // No npm inside the app: only accept an update whose dependencies are exactly the ones already installed.
+            let sameDeps = false;
+            try {
+                sameDeps = selfUpdateDepsFingerprint(path.join(installRoot, 'package.json')) === selfUpdateDepsFingerprint(path.join(packageRoot, 'package.json'))
+                    && selfUpdateNodeModulesComplete(installRoot, path.join(packageRoot, 'package.json'));
+            } catch (_fp) { sameDeps = false; }
+            if (!sameDeps) {
+                throw new Error('This update needs newer libraries than the ones inside this app, and the app cannot install libraries by itself. Nothing was changed. Please install the newest OmniPOS app (APK) first, then update again.');
             }
         }
         // UPDATE SAFETY: kumuha ng sariwang kopya ng database bago mag-apply (best effort — hindi hinaharang ang update).
@@ -19551,6 +20218,7 @@ const LEDGER_TYPE_LABELS = {
     return_restock: 'Return restocked',
     po_receive: 'PO received',
     consignment_in: 'Consignment in',
+    recipe_use: 'Recipe ingredient used',
     waste: 'Waste / damage',
     batch_delete: 'Batch deleted',
     batch_edit: 'Batch qty cut',
@@ -19580,8 +20248,22 @@ function buildStockMovements({ code, type, fromMs, toMs }) {
             push({
                 at, type: 'sale', code: item.code, name: item.name || '', delta: -base,
                 ref: tx.id ? `Sale ${tx.id}` : 'Sale', by: tx.cashier || '',
-                lots: normalizeAllocations(item.batchAllocations).map(a => ({ lotNumber: a.lotNumber, expiryDate: a.expiryDate, qty: a.qty }))
+                lots: normalizeAllocations(item.batchAllocations).map(a => ({ lotNumber: a.lotNumber, expiryDate: a.expiryDate, qty: a.qty })),
+                // A recipe product's own stock is only a derived "can make" number: the real movement is on its ingredients.
+                derived: Array.isArray(item.recipeUsage) && item.recipeUsage.length > 0
             });
+        }
+        // RECIPE: the ingredients that a recipe sale took out of stock (this was missing from the ledger before).
+        for (const item of (Array.isArray(tx.items) ? tx.items : [])) {
+            if (!item || !Array.isArray(item.recipeUsage)) continue;
+            for (const u of item.recipeUsage) {
+                if (!u || !match(u.code)) continue;
+                push({
+                    at, type: 'recipe_use', code: u.code, name: u.name || '', delta: -(parseFloat(u.qty) || 0),
+                    ref: `${tx.id ? 'Sale ' + tx.id : 'Sale'} · used for ${item.name || item.code}`, by: tx.cashier || '',
+                    lots: normalizeAllocations(u.batchAllocations).map(a => ({ lotNumber: a.lotNumber, expiryDate: a.expiryDate, qty: a.qty }))
+                });
+            }
         }
     }
     for (const rec of readData(FILE_STOCK_RETURNS, [])) {
@@ -19674,13 +20356,14 @@ app.get('/api/stock-movements', requirePermission('inventory_count'), requireFea
     const all = buildStockMovements({ code, type, fromMs, toMs });
     const summary = {};
     for (const e of all) {
+        if (e.derived) continue; // derived "can make" movement of a recipe product: not a real stock movement
         const row = summary[e.type] || (summary[e.type] = { type: e.type, label: LEDGER_TYPE_LABELS[e.type], count: 0, qtyIn: 0, qtyOut: 0 });
         row.count++;
         if (e.delta > 0) row.qtyIn = uomPricing.round(row.qtyIn + e.delta, uomPricing.DECIMAL_PLACES);
         else row.qtyOut = uomPricing.round(row.qtyOut + (-e.delta), uomPricing.DECIMAL_PLACES);
     }
-    const totalIn = uomPricing.round(all.filter(e => e.delta > 0).reduce((s, e) => s + e.delta, 0), uomPricing.DECIMAL_PLACES);
-    const totalOut = uomPricing.round(all.filter(e => e.delta < 0).reduce((s, e) => s - e.delta, 0), uomPricing.DECIMAL_PLACES);
+    const totalIn = uomPricing.round(all.filter(e => !e.derived && e.delta > 0).reduce((s, e) => s + e.delta, 0), uomPricing.DECIMAL_PLACES);
+    const totalOut = uomPricing.round(all.filter(e => !e.derived && e.delta < 0).reduce((s, e) => s - e.delta, 0), uomPricing.DECIMAL_PLACES);
     res.json({
         success: true,
         movements: all.slice(0, limit).map(({ ts, ...rest }) => ({ ...rest, typeLabel: LEDGER_TYPE_LABELS[rest.type] })),
@@ -20597,6 +21280,7 @@ app.post('/api/transactions/:transactionId/void', rateLimit('void-transaction', 
 async function processVoidTransaction(req, res) {
     const { transactionId } = req.params;
     const { requester, adminPassword } = req.body;
+    const voidReason = String((req.body && req.body.reason) || '').trim().slice(0, 300);
     if (!adminPassword) {
         return res.status(400).json({ success: false, message:'A password is required to void this transaction.' });
     }
@@ -20679,6 +21363,68 @@ async function processVoidTransaction(req, res) {
             promosForVoid = null;
         }
     }
+    // RECIPE: a VOID cancels the whole sale, so the ingredients it used go back to stock (same lots). Send
+    // `ingredientsConsumed: true` with the void when the food was already prepared (then log the waste instead).
+    // Refunds never put ingredients back: prepared food cannot be restocked.
+    let productsForVoid = null;
+    let voidIngredientsReturned = 0;
+    const voidRecipeLines = (targetTx.items || []).filter(it => it && Array.isArray(it.recipeUsage) && it.recipeUsage.length);
+    if (voidRecipeLines.length && !(req.body && req.body.ingredientsConsumed === true)) {
+        productsForVoid = readDataLite(FILE_PRODUCTS);
+        for (const line of voidRecipeLines) {
+            for (const use of line.recipeUsage) {
+                const ingProd = findProductByCodeKey(productsForVoid, use.code);
+                if (!ingProd) continue;
+                let covered = 0;
+                for (const a of normalizeAllocations(use.batchAllocations)) {
+                    addBaseStock(ingProd, a.qty, { lotNumber: a.lotNumber, expiryDate: a.expiryDate, costPrice: a.costPrice, mergeIfSame: true, notes: 'Returned by a voided sale (recipe ingredient)' });
+                    covered += a.qty;
+                }
+                const rest = uomPricing.round((parseFloat(use.qty) || 0) - covered, uomPricing.DECIMAL_PLACES);
+                if (rest > 1e-9) addBaseStock(ingProd, rest);
+                voidIngredientsReturned++;
+            }
+        }
+        if (!voidIngredientsReturned) productsForVoid = null;
+    }
+    // RECIPE: the food was already prepared, so the ingredients are gone for good. They were already deducted at the sale,
+    // so log them in the Waste Log as a loss WITHOUT deducting stock a second time (stockDeducted:false, like return write-offs).
+    let voidWasteEntries = [];
+    if (voidRecipeLines.length && req.body && req.body.ingredientsConsumed === true) {
+        try {
+            const wasteProducts = readDataLite(FILE_PRODUCTS);
+            const nowIso = new Date().toISOString();
+            const who = (req.authUser && req.authUser.username) || requester || 'Unknown';
+            for (const line of voidRecipeLines) {
+                for (const use of line.recipeUsage) {
+                    const q = uomPricing.round(parseFloat(use.qty) || 0, uomPricing.DECIMAL_PLACES);
+                    if (!(q > 0)) continue;
+                    const ingProd = findProductByCodeKey(wasteProducts, use.code);
+                    const allocs = normalizeAllocations(use.batchAllocations);
+                    voidWasteEntries.push({
+                        id: genWasteId(),
+                        code: use.code,
+                        name: use.name || (ingProd && ingProd.name) || '',
+                        unit: use.unit || (ingProd && ingProd.baseUnit) || 'unit',
+                        quantity: q,
+                        category: 'other',
+                        reason: `Voided sale ${transactionId}: food already prepared (${line.name || line.code})`,
+                        costImpact: costFromAllocations(allocs, q, productUnitCost(ingProd)),
+                        notes: '',
+                        recordedAt: nowIso,
+                        recordedBy: who,
+                        source: 'void_consumed',
+                        sourceTransactionId: transactionId,
+                        stockDeducted: false,
+                        lots: allocs.map(a => ({ lotNumber: a.lotNumber, expiryDate: a.expiryDate, qty: a.qty }))
+                    });
+                }
+            }
+        } catch (wasteErr) {
+            console.error('Void waste entries could not be built (void continues):', wasteErr);
+            voidWasteEntries = [];
+        }
+    }
     try {
         const changes = [
             { module: FILE_STOCK_RETURNS, data: stockReturns },
@@ -20686,6 +21432,8 @@ async function processVoidTransaction(req, res) {
         ];
         if (customers) changes.push({ module: FILE_CUSTOMERS, data: customers });
         if (promosForVoid) changes.push({ module: FILE_PROMOCODES, data: promosForVoid });
+        if (productsForVoid) changes.push({ module: FILE_PRODUCTS, data: productsForVoid });
+        if (voidWasteEntries.length) changes.push({ module: FILE_WASTE_LOG, data: [...voidWasteEntries, ...readData(FILE_WASTE_LOG, [])] });
         changes.push({ module: FILE_TRANSACTIONS, deleteRowIds: [transactionId] });
         commitDataModules(changes);
     } catch (error) {
@@ -20698,7 +21446,7 @@ async function processVoidTransaction(req, res) {
     // (see bir-compliance.js header note). voidedBy uses the authenticated user, not the body.
     if (targetTx.birInvoiceNumber) {
         try {
-            birCompliance.onTransactionVoided({ transaction: targetTx, voidedBy: (req.authUser && req.authUser.username) || requester, reason: (req.body && req.body.reason) || 'Voided transaction' });
+            birCompliance.onTransactionVoided({ transaction: targetTx, voidedBy: (req.authUser && req.authUser.username) || requester, reason: voidReason || 'Voided transaction', approvedBy: (authResult.user && authResult.user.username) || (authResult.isAdmin ? 'Admin' : null), approvedByRole: authResult.isAdmin ? 'Admin' : ((authResult.user && authResult.user.role) || null) });
         } catch (birErr) {
             console.error('BIR void log failed (void itself was saved):', birErr);
         }
@@ -20939,6 +21687,23 @@ async function processRefundTransaction(req, res) {
         reason,
         authResult.isAdmin ? 'Authorized by Admin' : `Authorized via Own Password (${authResult.user.username}, RBAC)`
     );
+    // BIR: log the refund ONLY after the commit above succeeded (same rule as the void log). Never allowed to break the refund itself.
+    try {
+        birCompliance.onTransactionRefunded({
+            transaction: targetTx,
+            refundId: refundRecord.id,
+            refundedBy: (req.authUser && req.authUser.username) || requester,
+            approvedBy: (authResult.user && authResult.user.username) || (authResult.isAdmin ? 'Admin' : null),
+            approvedByRole: authResult.isAdmin ? 'Admin' : ((authResult.user && authResult.user.role) || null),
+            reason: (reason || '').trim() || 'Refund',
+            amount: refundAmount,
+            items: refundLines,
+            isFullRefund: refundRecord.isFullRefund,
+            totalRefundedAfter: newTotalRefunded
+        });
+    } catch (birErr) {
+        console.error('BIR refund log failed (refund itself was saved):', birErr);
+    }
     runFraudChecks('refund', { cashier: requester || 'Unknown', transactionId, refundAmount });
     res.json({
         success: true,
@@ -23495,6 +24260,10 @@ app.get('/api/bir/voids', requirePermission('bir_compliance'), requireFeature('b
     const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
     res.json(birCompliance.getVoidLog(limit));
 });
+app.get('/api/bir/refunds', requirePermission('bir_compliance'), requireFeature('bir_compliance'), (req, res) => {
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
+    res.json(birCompliance.getRefundLog(limit));
+});
 // ===== BIR TEST WIPE (FOR TESTING ONLY) - RELAY decides, this device only confirms =====
 // Ang RELAY admin ang magpapadala ng signed wipe command para sa installation na ito. Hindi ang OmniPOS ang nagsisimula.
 // Ang OmniPOS ay: (1) nagtatanong sa RELAY kung may nakabinbing command, (2) bine-verify ang signature at installation ID,
@@ -23679,6 +24448,7 @@ app.post('/api/bir/test-wipe/confirm', async (req, res) => {
         const changes = [
             { module: 'birState', data: { agt: 0, baselineAGT: 0, resetCounter: 0, zCounter: 0, nextInvoiceNumber: 1, invoiceNumberAtPeriodStart: 1, lastZReadingAt: null, lastResetAt: null, createdAt: nowIso } },
             { module: 'birVoids', data: [] },
+            { module: 'birRefunds', data: [] },
             { module: 'birZReadingHistory', data: [] },
             { module: 'birResetHistory', data: [] }
         ];

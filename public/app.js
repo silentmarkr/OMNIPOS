@@ -32265,25 +32265,61 @@ function showGoogleAppVerificationFAQ() {
 }
 async function handleVoidTransaction(transactionId) {
     const isAdmin = currentUser && currentUser.role && currentUser.role.toLowerCase() ==='admin';
-    const { value: adminPassword } = await Swal.fire({
+    // RECIPE: if this sale used recipe ingredients, ask whether the food was already prepared.
+    // No  -> the ingredients go back to stock.  Yes -> they are logged as waste (no stock is returned).
+    let ingredientsConsumed = false;
+    const voidTx = (localTransactionsList || []).find(t => t && t.id === transactionId);
+    const hasRecipeLines = !!(voidTx && Array.isArray(voidTx.items) && voidTx.items.some(it => it && Array.isArray(it.recipeUsage) && it.recipeUsage.length));
+    if (hasRecipeLines) {
+        const prep = await Swal.fire({
+            title: 'Was the order already prepared?',
+            html: 'This sale used recipe ingredients.<br><b>No</b> = the ingredients are returned to stock.<br><b>Yes</b> = the ingredients are logged as waste and are NOT returned to stock.',
+            icon: 'question',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: 'Yes, already prepared',
+            denyButtonText: 'No, not prepared',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#f59e0b',
+            denyButtonColor: '#2563eb',
+            cancelButtonColor: '#64748b'
+        });
+        if (prep.isDismissed) return;
+        ingredientsConsumed = !!prep.isConfirmed;
+    }
+    const voidPrompt = await Swal.fire({
         title: isAdmin ?'🔒 Admin Authorization Required' :'🔒 Void Authorization Required',
-        html: isAdmin
+        html: (isAdmin
             ?'Admin password is required to void this transaction. The returned items will be placed in Pending Stock Return Inspection and will NOT be added back to sellable stock yet.'
-            :'Admin or authorized Supervisor/Manager password is required to void this transaction. The returned items will be placed in Pending Stock Return Inspection and will NOT be added back to sellable stock yet.',
-        input:'password',
-        inputPlaceholder: isAdmin ?'Enter Admin password' :'Admin/Supervisor password',
+            :'Admin or authorized Supervisor/Manager password is required to void this transaction. The returned items will be placed in Pending Stock Return Inspection and will NOT be added back to sellable stock yet.')
+            + '<textarea id="void-reason-input" maxlength="300" placeholder="Reason for void (required, e.g. wrong order, customer cancelled)" style="width:100%; min-height:60px; margin-top:10px; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-family:inherit;"></textarea>'
+            + '<input type="password" id="void-password-input" autocomplete="off" placeholder="' + (isAdmin ?'Enter Admin password' :'Admin/Supervisor password') + '" style="width:100%; margin-top:10px; padding:8px; border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box;">',
+        focusConfirm: false,
         showCancelButton: true,
         confirmButtonColor:'#2563eb',
-        cancelButtonColor:'#ef4444'
+        cancelButtonColor:'#ef4444',
+        preConfirm: () => {
+            const reasonEl = document.getElementById('void-reason-input');
+            const passEl = document.getElementById('void-password-input');
+            const reasonVal = reasonEl ? reasonEl.value.trim() : '';
+            const passVal = passEl ? passEl.value : '';
+            if (!reasonVal) { Swal.showValidationMessage('Please enter the reason for the void.'); return false; }
+            if (!passVal || passVal.trim() === '') { Swal.showValidationMessage('Please enter the password.'); return false; }
+            return { reason: reasonVal, password: passVal };
+        }
     });
-    if (!adminPassword || adminPassword.trim() ==="") return;
+    if (!voidPrompt.isConfirmed || !voidPrompt.value) return;
+    const adminPassword = voidPrompt.value.password;
+    const voidReason = voidPrompt.value.reason;
     try {
         const response = await authFetch(`${API_URL}/transactions/${transactionId}/void`, {
             method:'POST',
             headers: {'Content-Type':'application/json' },
             body: JSON.stringify({
                 requester: currentUser.username,
-                adminPassword: adminPassword
+                adminPassword: adminPassword,
+                reason: voidReason,
+                ingredientsConsumed: ingredientsConsumed
             })
         });
         const result = await response.json();
@@ -33474,10 +33510,11 @@ async function loadBirComplianceView() {
     if (fromEl && !fromEl.value) fromEl.value = birManilaToday();
     if (toEl && !toEl.value) toEl.value = birManilaToday();
     try {
-        const [state, zHistory, voids, resets] = await Promise.all([
+        const [state, zHistory, voids, refundsLog, resets] = await Promise.all([
             birGetJson('/bir/state'),
             birGetJson('/bir/z-reading/history?limit=50'),
             birGetJson('/bir/voids?limit=50'),
+            birGetJson('/bir/refunds?limit=50'),
             birGetJson('/bir/reset-history')
         ]);
         birLastState = state;
@@ -33485,6 +33522,7 @@ async function loadBirComplianceView() {
         renderBirState(state);
         renderBirZHistory(birZHistoryCache);
         renderBirVoids(Array.isArray(voids) ? voids : []);
+        renderBirRefunds(Array.isArray(refundsLog) ? refundsLog : []);
         renderBirResets(Array.isArray(resets) ? resets : []);
     } catch (err) {
         console.error('BIR page load failed:', err);
@@ -33508,7 +33546,7 @@ function renderBirState(state) {
 function renderBirZHistory(list) {
     const body = document.getElementById('bir-z-history-body');
     if (!body) return;
-    if (!list.length) { body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;">No BIR Z-Readings yet.</td></tr>'; return; }
+    if (!list.length) { body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#94a3b8;">No BIR Z-Readings yet.</td></tr>'; return; }
     body.innerHTML = list.map(r => `
         <tr>
             <td>#${escapeHtml(String(r.zCounter))}</td>
@@ -33518,21 +33556,39 @@ function renderBirZHistory(list) {
             <td>${birPeso(r.netSales)}</td>
             <td>${r.invoiceCount > 0 ? `${escapeHtml(birInvNo(r.invoiceFrom))} – ${escapeHtml(birInvNo(r.invoiceTo))} (${r.invoiceCount})` : '—'}${r.lateSyncedCount ? `<div style="font-size:.72rem;color:var(--pos-warning);">${r.lateSyncedCount} late-synced offline sale(s) · ${birPeso(r.lateSyncedAmount)}</div>` : ''}</td>
             <td>${r.voidCount ? `${r.voidCount} (${birPeso(r.voidAmount)})` : '0'}</td>
+            <td>${r.refundCount ? `${r.refundCount} (${birPeso(r.refundAmount)})` : '0'}</td>
             <td><button type="button" class="btn-action-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="printBirZReadingById('${escapeHtml(r.id)}')"><i class="fa-solid fa-print"></i> Print</button></td>
         </tr>`).join('');
 }
 function renderBirVoids(list) {
     const body = document.getElementById('bir-void-log-body');
     if (!body) return;
-    if (!list.length) { body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;">${escapeHtml(birT('No voided invoices logged.'))}</td></tr>`; return; }
+    if (!list.length) { body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#94a3b8;">${escapeHtml(birT('No voided invoices logged.'))}</td></tr>`; return; }
     body.innerHTML = list.map(v => `
         <tr>
             <td>${escapeHtml(v.invoiceNumber ? birDisplayNo(v.invoiceNumber) : '—')}</td>
             <td>${escapeHtml(v.transactionId || '—')}</td>
             <td>${birPeso(v.amount)}</td>
             <td>${escapeHtml(v.voidedBy || '—')}</td>
+            <td>${escapeHtml(v.approvedBy || '—')}</td>
             <td>${escapeHtml(birFmtDate(v.voidedAt))}</td>
             <td>${escapeHtml(v.reason || '—')}</td>
+        </tr>`).join('');
+}
+function renderBirRefunds(list) {
+    const body = document.getElementById('bir-refund-log-body');
+    if (!body) return;
+    if (!list.length) { body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;">No refunds logged.</td></tr>'; return; }
+    body.innerHTML = list.map(r => `
+        <tr>
+            <td>${escapeHtml(r.invoiceNumber ? birDisplayNo(r.invoiceNumber) : '—')}</td>
+            <td>${escapeHtml(r.transactionId || '—')}</td>
+            <td>${birPeso(r.amount)}${r.isFullRefund ? ' <small>(full)</small>' : ' <small>(partial)</small>'}</td>
+            <td>${escapeHtml((r.items || []).map(it => `${it.name} x${it.quantity}`).join(', ') || '—')}</td>
+            <td>${escapeHtml(r.refundedBy || '—')}</td>
+            <td>${escapeHtml(r.approvedBy || '—')}</td>
+            <td>${escapeHtml(birFmtDate(r.refundedAt))}</td>
+            <td>${escapeHtml(r.reason || '—')}</td>
         </tr>`).join('');
 }
 function renderBirResets(list) {
@@ -33620,6 +33676,8 @@ function printBirZReading(r) {
         ${row('Invoice Count', r.invoiceCount)}
         ${row('Void Count', r.voidCount)}
         ${row('Void Amount', birPeso(r.voidAmount))}
+        ${row('Refund Count', r.refundCount || 0)}
+        ${row('Refund Amount', birPeso(r.refundAmount || 0))}
         ${r.offlineSyncedCount ? row('Offline-synced sales', r.offlineSyncedCount) : ''}
         ${r.lateSyncedCount ? row('Sold before this period', `${r.lateSyncedCount} (${birPeso(r.lateSyncedAmount)})`) : ''}<hr>
         ${row('AGT Resets to date', r.resetCounterAtReading)}

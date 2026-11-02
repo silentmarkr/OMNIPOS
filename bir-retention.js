@@ -222,7 +222,7 @@ module.exports = function createBirRetention(deps) {
     function birRecordsExist() {
         const st = birCompliance.getBirState();
         if ((Number(st.nextInvoiceNumber) || 1) > 1 || (Number(st.zCounter) || 0) > 0 || (Number(st.resetCounter) || 0) > 0 || (parseFloat(st.agt) || 0) > 0) return true;
-        if (listLen('birVoids') > 0 || listLen('birZReadingHistory') > 0 || listLen('birResetHistory') > 0) return true;
+        if (listLen('birVoids') > 0 || listLen('birRefunds') > 0 || listLen('birZReadingHistory') > 0 || listLen('birResetHistory') > 0) return true;
         const tx = readData('transactions', []);
         return Array.isArray(tx) && tx.some(isBirTransaction);
     }
@@ -244,6 +244,7 @@ module.exports = function createBirRetention(deps) {
             agt: Math.round((parseFloat(st.agt) || 0) * 100) / 100,
             birTransactionCount: Array.isArray(tx) ? tx.filter(isBirTransaction).length : 0,
             voidCount: listLen('birVoids'),
+            refundCount: listLen('birRefunds'),
             openReadingPeriod: hasOpenReadingPeriod(),
             vaultArchives: ledger.length,
             generatedAt: new Date(now || Date.now()).toISOString()
@@ -448,6 +449,7 @@ module.exports = function createBirRetention(deps) {
         const counts = {
             birTransactions: birTransactions.length,
             voids: Array.isArray(modules.birVoids) ? modules.birVoids.length : 0,
+            refunds: Array.isArray(modules.birRefunds) ? modules.birRefunds.length : 0,
             zReadings: Array.isArray(modules.birZReadingHistory) ? modules.birZReadingHistory.length : 0,
             agtResets: Array.isArray(modules.birResetHistory) ? modules.birResetHistory.length : 0
         };
@@ -573,7 +575,7 @@ module.exports = function createBirRetention(deps) {
         } else if (b !== undefined && b !== null) {
             return { allow: false, touched: true, reason: 'the backup BIR state is not in a valid format' };
         }
-        const lists = [['birVoids', 'void log'], ['birZReadingHistory', 'Z-Reading history'], ['birResetHistory', 'AGT reset history']];
+        const lists = [['birVoids', 'void log'], ['birRefunds', 'refund log'], ['birZReadingHistory', 'Z-Reading history'], ['birResetHistory', 'AGT reset history']];
         for (const [name, label] of lists) {
             const inc = incoming[name];
             if (inc === undefined || inc === null) continue;
