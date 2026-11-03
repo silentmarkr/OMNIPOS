@@ -15856,3 +15856,329 @@ Server running at http://0.0.0.0:3000
 MODE: Production (Public/Online Access Enabled)
 [2026-10-30 21:30:28] 🛑 Ihihinto ang supervisor loop (signal received).
 ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-11-02 19:48:20] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-11-02 19:48:23] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-10-30T13:28:50.507Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 19:48:48] ❌ May tumatakbo na supervisor loop (PID 19935). Hindi na papatakbuhin ulit.
+[2026-11-02 19:49:08] ❌ May tumatakbo na supervisor loop (PID 19935). Hindi na papatakbuhin ulit.
+[2026-11-02 19:49:58] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T11:48:27.486Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 19:50:22] ❌ May tumatakbo na supervisor loop (PID 19935). Hindi na papatakbuhin ulit.
+[2026-11-02 19:52:06] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T11:50:03.438Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+[2026-11-02 20:07:31] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T11:52:18.341Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: This operation was aborted
+[2026-11-02 20:11:22] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T11:52:18.341Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:12:57] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:11:26.148Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:14:33] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:13:01.850Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:16:08] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:14:37.143Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:17:43] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:16:12.548Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:19:19] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:17:47.799Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:20:54] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:19:23.419Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:22:29] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:20:58.502Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:24:05] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:22:33.992Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:25:40] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:24:09.338Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:27:16] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:25:44.797Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 20:28:51] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:27:20.135Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+[2026-11-02 20:31:51] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:28:55.485Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+[2026-11-02 20:33:44] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:28:55.485Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+⚠️  Could not reach Relay for auto-restore check: fetch failed
+⚠️  Could not reach Relay for the feature status check: fetch failed
+[2026-11-02 20:39:03] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:28:55.485Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+⚠️  Hindi na-fetch ang Cloud Backup pricing mula RELAY (offline/timeout?) — gagamitin ang huling cache/fallback: No internet connection has been detected on this device.
+[2026-11-02 21:17:15] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T12:28:55.485Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 21:17:41] ❌ May tumatakbo na supervisor loop (PID 19935). Hindi na papatakbuhin ulit.
+[2026-11-02 21:18:48] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T13:18:32.923Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 21:20:21] ℹ️  Lumabas nang normal ang server.js (exit code 0) — malamang self-update. Magre-restart sa loob ng 1s...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T13:19:38.736Z).
+🔥 [CRASH-SAFETY] Uncaught Exception (hindi pinatay ang server): TypeError: require(...).setProductsBeforeWriteHook is not a function
+    at Object.<anonymous> (/data/data/com.termux/files/home/OMNIPOS/server.js:14433:17)
+    at Module._compile (node:internal/modules/cjs/loader:1944:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:2084:10)
+    at Module.load (node:internal/modules/cjs/loader:1666:32)
+    at Module._load (node:internal/modules/cjs/loader:1447:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+[2026-11-02 21:21:13] ❌ May tumatakbo na supervisor loop (PID 19935). Hindi na papatakbuhin ulit.
+[2026-11-02 21:21:45] 🛑 Ihihinto ang supervisor loop (signal received).
+[2026-11-02 21:21:52] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-11-02 21:21:55] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T13:21:35.053Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+🚫 DEVICE REVOKED: inalis ng developer/owner ang device na ito sa allowed list ng RELAY — na-force-logout ang 0 aktibong session.
+[2026-11-02 21:24:49] 🛑 Ihihinto ang supervisor loop (signal received).
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...
+[2026-11-02 22:09:10] 🔒 Termux wake-lock enabled (pinipigilan ng Android na i-kill ang session).
+[2026-11-02 22:09:13] 🚀 OMNIPOS supervisor loop — sinisimulan ang server.js...
+🔄 Naibalik ang 1 aktibong session mula sa huling pagkaka-save (bago pa mag-restart).
+⏸️  Naka-disable ang auto-backup (DISABLE_AUTO_BACKUP=true sa .env). Alisin/i-false ang env var para i-enable ulit ito.
+💳 Na-load ang cached Cloud Backup pricing mula RELAY (huling na-fetch: 2026-11-02T13:23:52.528Z).
+ℹ️  [cloud-snapshot] Walang OMNIPOS_FIXED_INSTALLATION_ID at/o DATABASE_URL na naka-set — nilaktawan ang cloud restore.
+Server running at http://0.0.0.0:3000
+MODE: Production (Public/Online Access Enabled)
+[2026-11-02 22:14:16] 🛑 Ihihinto ang supervisor loop (signal received).
+ℹ️  Natanggap ang SIGTERM — nagse-save muna ng huling snapshot sa Postgres bago mag-exit...

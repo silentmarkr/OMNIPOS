@@ -6,10 +6,12 @@
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#101522;color:#f4f6fb}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px}.card{width:min(100%,460px);padding:28px;border:1px solid #30394c;border-radius:20px;background:#171e2d;box-shadow:0 20px 70px #0005}h1{font-size:1.55rem;margin:0 0 8px}p{color:#b8c2d5;line-height:1.55}label{display:block;font-weight:650;margin:22px 0 8px}input{width:100%;padding:14px;border-radius:10px;border:1px solid #45516a;background:#0e1420;color:#fff;font:inherit;letter-spacing:.04em}input[readonly]{border-color:#2f7d62;background:#0c1b17}button{width:100%;margin-top:14px;padding:14px;border:0;border-radius:10px;background:#7c9cff;color:#081126;font:inherit;font-weight:750;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.status{margin-top:14px;padding:12px;border-radius:10px;overflow-wrap:anywhere}.status:empty{display:none}.error{background:#4a2028;color:#ffd9df}.ok{background:#153c31;color:#c9ffeb}.wait{background:#1d2740;color:#cfd9f5}.small{font-size:.88rem}
 .pair{margin:18px 0 4px;padding:14px;border:1px dashed #45516a;border-radius:12px;text-align:center}.pair small{display:block;color:#9fb0cc;margin-bottom:4px}.pair strong{display:block;font-size:1.9rem;letter-spacing:.14em;font-variant-numeric:tabular-nums}
+.combo{position:relative}.dl{position:absolute;left:0;right:0;top:100%;margin:4px 0 0;padding:4px;list-style:none;max-height:240px;overflow-y:auto;background:#0e1420;border:1px solid #45516a;border-radius:10px;z-index:10;box-shadow:0 12px 30px #0008;-webkit-overflow-scrolling:touch}.dl[hidden]{display:none}.dl li{padding:12px;border-radius:8px;cursor:pointer;color:#f4f6fb}.dl li small{color:#9fb0cc;margin-left:6px}.dl li.on,.dl li:hover{background:#26324d}.dl li.custom{color:#9fb7ff;border-top:1px solid #30394c;border-radius:0 0 8px 8px}.dl .none{padding:12px;color:#9fb0cc;cursor:default}
 </style></head>
 <body><main class="card"><h1 id="title">Activate OMNIPOS</h1>
 <p>Your provider will send the activation key to this screen. Give them the pairing code below, then wait — the key appears automatically. This installation will be registered to this device. Replacing the device requires administrator approval.</p>
 <div class="pair" aria-live="polite"><small>Your pairing code</small><strong id="pairingCode">…</strong></div>
+<div id="deviceBox"><label for="deviceName">Device name</label><div class="combo"><input id="deviceName" role="combobox" aria-expanded="false" aria-controls="deviceList" aria-autocomplete="list" autocomplete="off" autocapitalize="words" maxlength="60" spellcheck="false" placeholder="Search your device, e.g. Samsung, iPhone, Xiaomi" style="letter-spacing:normal;text-transform:none"><ul class="dl" id="deviceList" role="listbox" hidden></ul></div><label for="deviceModel">Device model</label><input id="deviceModel" autocomplete="off" maxlength="60" spellcheck="false" placeholder="Model name or number, e.g. Galaxy S25, iPhone 17 Pro Max" style="letter-spacing:normal;text-transform:none"><p class="small" id="deviceHint">Required. Search and tap your device, then type its model.</p></div>
 <form id="activationForm"><label for="activationKey">Customer activation key</label><input id="activationKey" name="activationKey" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="256" placeholder="Waiting for your provider…"><button id="activateButton" type="submit" disabled>Waiting for activation key…</button></form>
 <div id="status" class="status wait" role="status" aria-live="polite">Connecting to RELAY…</div>
 <p class="small">Anything typed in the box is replaced by the key your provider sends. The activation key is verified by your configured RELAY server. The RELAY master key is not stored in this customer package.</p></main>
@@ -19,6 +21,89 @@
   var form = document.getElementById('activationForm'), input = document.getElementById('activationKey'), button = document.getElementById('activateButton');
   var statusBox = document.getElementById('status'), codeBox = document.getElementById('pairingCode');
   var READY_LABEL = 'Activate this device';
+  var nameInput = document.getElementById('deviceName'), modelInput = document.getElementById('deviceModel'), deviceBox = document.getElementById('deviceBox'), listBox = document.getElementById('deviceList');
+  var isRenewal = false, typingTimer = null;
+  // Phones, tablets and Android POS handhelds. Picking one fills the device name (it becomes the customer name on RELAY).
+  // If the device is not here, the customer can still use whatever they typed.
+  var DEVICES = ['Samsung Galaxy','Samsung Galaxy Tab','Samsung Galaxy A-series','Samsung Galaxy S-series','Samsung Galaxy Z Fold / Flip','Apple iPhone','Apple iPad','Apple iPad Pro','Apple iPad mini','Huawei','Huawei MatePad','Xiaomi','Xiaomi Pad','Redmi','Redmi Pad','POCO','OPPO','OPPO Pad','Realme','Realme Pad','Vivo','iQOO','Infinix','Tecno','itel','Honor','Honor Pad','OnePlus','Google Pixel','Motorola','Nokia','Sony Xperia','Asus','Asus ROG Phone','Asus ZenFone','Lenovo','Lenovo Tab','Acer','TCL','Alcatel','ZTE','nubia','Cherry Mobile','MyPhone','Starmobile','Cloudfone','Oukitel','Ulefone','Blackview','Doogee','CAT','Amazon Fire','Microsoft Surface','Sunmi','iMin','Zebra','Urovo','PAX','Teclast','Alldocube','Chuwi','Hotwav','Umidigi','Fairphone','Meizu','Lava','Tab (generic Android tablet)','Phone (generic Android phone)'];
+  var listItems = [], activeIdx = -1, nameValue = '';
+  function clean(v) { return String(v || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim(); }
+  function norm(v) { return String(v || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  try { nameValue = clean(localStorage.getItem('omniposDeviceName')); nameInput.value = nameValue; modelInput.value = clean(localStorage.getItem('omniposDeviceModel')); } catch (_e) {}
+  // The name only counts once it is chosen from the list (or committed as typed), so half-typed text like "Sa" is never sent to RELAY.
+  function deviceName() { return nameValue; }
+  function deviceModel() { return clean(modelInput.value); }
+  function deviceOk() { return isRenewal || (deviceName().length >= 2 && deviceModel().length >= 2); }
+  function refreshButton() {
+    if (done || activating) return;
+    if (appliedDeliveryId && deviceOk()) { button.disabled = false; button.textContent = READY_LABEL; }
+    else if (appliedDeliveryId) { button.disabled = true; button.textContent = 'Enter device name and model'; }
+  }
+  function waitingText() { return deviceOk() ? 'Waiting for your activation key. Keep this screen open.' : 'Choose your device and enter its model to continue.'; }
+  function onDeviceInput() {
+    try { localStorage.setItem('omniposDeviceName', deviceName()); localStorage.setItem('omniposDeviceModel', deviceModel()); } catch (_e) {}
+    refreshButton();
+    if (!appliedDeliveryId && !done) setStatus('wait', waitingText());
+    clearTimeout(typingTimer);
+    if (deviceOk()) typingTimer = setTimeout(function () { clearTimeout(timer); poll(); }, 1500);   // send it to RELAY soon after the customer stops typing instead of waiting for the next poll
+  }
+  function closeList() { listBox.hidden = true; nameInput.setAttribute('aria-expanded', 'false'); activeIdx = -1; }
+  function renderList() {
+    var q = norm(nameInput.value), typed = clean(nameInput.value), html = '', exact = false;
+    listItems = [];
+    for (var i = 0; i < DEVICES.length; i++) {
+      var n = norm(DEVICES[i]);
+      if (n === q) exact = true;
+      if (!q || n.indexOf(q) !== -1) listItems.push({ label: DEVICES[i], custom: false });
+    }
+    if (typed.length >= 2 && !exact) listItems.push({ label: typed, custom: true });
+    listBox.textContent = '';
+    if (!listItems.length) { var none = document.createElement('li'); none.className = 'none'; none.textContent = 'Type at least 2 letters to use your own device name.'; listBox.appendChild(none); }
+    listItems.forEach(function (it, idx) {
+      var li = document.createElement('li'); li.setAttribute('role', 'option'); li.dataset.idx = idx;
+      li.className = (it.custom ? 'custom ' : '') + (idx === activeIdx ? 'on' : '');
+      li.textContent = it.custom ? 'Use “' + it.label + '”' : it.label;
+      listBox.appendChild(li);
+    });
+    listBox.hidden = false; nameInput.setAttribute('aria-expanded', 'true');
+  }
+  function commitName(v) {
+    nameValue = clean(v).slice(0, 60);
+    nameInput.value = nameValue;
+    closeList();
+    onDeviceInput();
+    if (nameValue.length >= 2 && !deviceModel()) modelInput.focus();
+  }
+  nameInput.addEventListener('focus', function () { nameInput.select(); renderList(); });
+  nameInput.addEventListener('input', function () {
+    nameValue = '';   // typing again un-confirms the name until the customer picks one
+    activeIdx = -1; renderList(); onDeviceInput();
+  });
+  nameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); if (listBox.hidden) renderList();
+      if (!listItems.length) return;
+      activeIdx = e.key === 'ArrowDown' ? (activeIdx + 1) % listItems.length : (activeIdx <= 0 ? listItems.length - 1 : activeIdx - 1);
+      renderList();
+      var on = listBox.querySelector('li.on'); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0 && listItems[activeIdx]) commitName(listItems[activeIdx].label);
+      else if (listItems.length === 1) commitName(listItems[0].label);
+      else if (clean(nameInput.value).length >= 2) commitName(nameInput.value);
+    } else if (e.key === 'Escape') { closeList(); }
+  });
+  // mousedown/pointerdown + preventDefault keeps the input focused so the list does not vanish before the tap registers.
+  listBox.addEventListener('mousedown', function (e) { e.preventDefault(); });
+  listBox.addEventListener('click', function (e) {
+    var li = e.target.closest ? e.target.closest('li[data-idx]') : null;
+    if (li && listItems[+li.dataset.idx]) commitName(listItems[+li.dataset.idx].label);
+  });
+  nameInput.addEventListener('blur', function () {
+    // Leaving the box with text typed but nothing picked: keep what was typed (a device that is not in the list).
+    if (!nameValue && clean(nameInput.value).length >= 2) commitName(nameInput.value); else closeList();
+  });
+  modelInput.addEventListener('input', onDeviceInput);
   var appliedDeliveryId = null;   // the delivery currently in the box (a newer one from the provider replaces it)
   var activating = false, done = false, failures = 0, timer = null;
 
@@ -29,7 +114,7 @@
     if (done) return;
     var delay = 4000;
     try {
-      var response = await fetch('/api/relay/activation-inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store' });
+      var response = await fetch('/api/relay/activation-inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceName: deviceName(), deviceModel: deviceModel() }), cache: 'no-store' });
       var data = await response.json().catch(function () { return {}; });
       if (response.status === 409 && data.code === 'ALREADY_ACTIVATED') { done = true; location.replace('/'); return; }
       if (!response.ok || !data.success) {
@@ -38,6 +123,8 @@
         if (!appliedDeliveryId) setStatus('error', (data.message || 'Could not reach RELAY.') + ' Trying again…');
       } else {
         failures = 0;
+        isRenewal = !!data.renewal;
+        deviceBox.style.display = isRenewal ? 'none' : '';
         if (data.renewal) { document.getElementById('title').textContent = 'Renew OMNIPOS activation'; document.title = 'Renew OMNIPOS'; READY_LABEL = 'Renew this device'; }
         if (data.pairingCode) codeBox.textContent = data.pairingCode;
         var d = data.delivery;
@@ -46,11 +133,10 @@
           input.value = d.activationKey;
           input.readOnly = true;
           appliedDeliveryId = d.deliveryId;
-          button.disabled = false;
-          button.textContent = READY_LABEL;
-          setStatus('ok', 'Activation key received from your provider. Tap “' + READY_LABEL + '”.');
+          refreshButton();
+          setStatus('ok', deviceOk() ? 'Activation key received. Tap “' + READY_LABEL + '”.' : 'Activation key received. Enter your device name and model, then tap “' + READY_LABEL + '”.');
         } else if (!appliedDeliveryId) {
-          setStatus('wait', 'Waiting for your provider to send the activation key. Keep this screen open.');
+          setStatus('wait', waitingText());
         }
       }
     } catch (err) {
@@ -64,7 +150,7 @@
   form.addEventListener('submit', async function (e) {
     e.preventDefault();
     // Only the key RELAY sent can be submitted from this screen.
-    if (!appliedDeliveryId || activating) return;
+    if (!appliedDeliveryId || activating || !deviceOk()) return;
     var activationKey = input.value.trim();
     if (!activationKey) return;
     activating = true; button.disabled = true; button.textContent = 'Verifying…';

@@ -8410,12 +8410,35 @@ async function completeLoginSuccess(data) {
         }
     }
 }
+// TRIAL (Demo Mode): while the free trial runs and the Admin account still has its default password, the server tells the
+// login screen to pre-fill that account so the client only has to tap Sign In. Outside the trial the server answers
+// prefill:false and the form stays empty exactly as before. It never overwrites anything the person already typed.
+async function applyTrialLoginPrefill() {
+    if (window.__trialLoginHintBusy) return;
+    window.__trialLoginHintBusy = true;
+    try {
+        const res = await fetchWithTimeout(`${API_URL}/auth/trial-login-hint`, { cache: 'no-store' }, 8000);
+        if (!res.ok) return;
+        const hint = await res.json().catch(() => null);
+        if (!hint || hint.prefill !== true || !hint.username || !hint.password) return;
+        const txtUser = document.getElementById('login-username');
+        const txtPass = document.getElementById('login-password');
+        if (!txtUser || !txtPass || txtUser.value || txtPass.value) return;
+        txtUser.value = hint.username;
+        txtPass.value = hint.password;
+    } catch (_e) {
+        /* server not reachable yet: the normal empty login form stays */
+    } finally {
+        window.__trialLoginHintBusy = false;
+    }
+}
 function showAuthenticationInterface() {
     document.documentElement.classList.remove('has-session');
     document.documentElement.removeAttribute('data-preload-view');
     document.getElementById('auth-view').style.display ='flex';
     document.getElementById('main-view').style.display ='none';
     if (typeof updateMetaThemeColor ==='function') updateMetaThemeColor();
+    applyTrialLoginPrefill();
 }
 // ---- Kiosk Counter shortcut (OMNIKiosk add-on) ----
 function syncKioskShortcut(allowed) {

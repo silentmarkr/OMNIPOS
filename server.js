@@ -523,9 +523,26 @@ function isStoredPasswordDefault(user) {
 }
 // While a session is flagged mustChangePassword, only these endpoints work (change the password, sign out, health).
 const PASSWORD_CHANGE_ALLOWED_PATHS = new Set(['/api/users/self/change-password', '/api/users/self/skip-password-change', '/api/auth/logout', '/api/health']);
+// TRIAL (Demo Mode) RULE: while the free-trial Demo Mode is running, the default Admin account (admin/admin) is NOT forced to
+// change its password, and the login screen pre-fills that account (see /api/auth/trial-login-hint) so the client only taps
+// Sign In. Everything returns to the normal behaviour as soon as Demo Mode is no longer active (expired, ended, removed by
+// RELAY) or the store has bought everything. A session opened during the trial is marked pwChangeDeferredByTrial; once the
+// trial is over, the next request of that session gets the normal forced password change if the password is still the default.
+// Fail-closed: any error reads as "not a trial", which means the normal forced change applies.
+function isTrialDemoActive() {
+    try { return isDemoActive() && !isFullyProUnlocked(); }
+    catch (_e) { return false; }
+}
+// One decision point for the login paths: returns whether the forced change applies now, and whether it was only
+// postponed because of the trial (so the session can be re-checked after the trial ends).
+function evaluateDefaultPasswordGate(role, stillDefaultPassword) {
+    if (!roleMustChangeDefaultPassword(role) || !stillDefaultPassword) return { mustChangePassword: false, deferredByTrial: false };
+    if (isTrialDemoActive()) return { mustChangePassword: false, deferredByTrial: true };
+    return { mustChangePassword: true, deferredByTrial: false };
+}
 function createSession(username, role, userAgent, ip, opts) {
     const token = crypto.randomBytes(32).toString('hex');
-    SESSIONS.set(token, { username, role, loginAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, device: parseDeviceInfo(userAgent), ip: ip || 'unknown', ...((opts && opts.mustChangePassword) ? { mustChangePassword: true } : {}) });
+    SESSIONS.set(token, { username, role, loginAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, device: parseDeviceInfo(userAgent), ip: ip || 'unknown', ...((opts && opts.mustChangePassword) ? { mustChangePassword: true } : {}), ...((opts && opts.pwChangeDeferredByTrial) ? { pwChangeDeferredByTrial: true } : {}) });
     persistSessions();
     return token;
 }
@@ -611,7 +628,7 @@ function extractToken(req) {
     if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
     return req.headers['x-auth-token'] ||'';
 }
-const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm','/api/health','/api/relay/license-state','/api/customer-display/ping','/api/customer-display/stream']);
+const PUBLIC_API_PATHS = new Set(['/api/auth/login','/api/auth/login/verify-otp','/api/auth/webauthn/login-options','/api/auth/webauthn/login-verify','/api/admin/request-password-reset','/api/admin/confirm-password-reset','/api/admin/forgot-password/status','/api/admin/forgot-password/request-otp','/api/admin/forgot-password/confirm','/api/health','/api/auth/trial-login-hint','/api/relay/license-state','/api/customer-display/ping','/api/customer-display/stream']);
 app.use(async (req, res, next) => {
     if (!req.path.startsWith('/api/')) return next();
     if (PUBLIC_API_PATHS.has(req.path)) return next();
@@ -643,6 +660,23 @@ app.use(async (req, res, next) => {
     if (Date.now() - lastLiveRecheckAt > DEVICE_REVOCATION_RECHECK_MS) {
         lastLiveRecheckAt = Date.now();
         recheckDeviceAuthorizationLive();
+    }
+    if (session.mustChangePassword && roleMustChangeDefaultPassword(session.role) && isTrialDemoActive()) {
+        // Session opened before this trial rule existed (or before the trial started): while the trial runs it is not locked.
+        delete session.mustChangePassword;
+        session.pwChangeDeferredByTrial = true;
+        persistSessions();
+    }
+    if (session.pwChangeDeferredByTrial && !isTrialDemoActive()) {
+        // The free trial is over: this session was opened while the default-password change was postponed by the trial.
+        // If the account still has the default password, the normal forced change applies from this request on.
+        delete session.pwChangeDeferredByTrial;
+        try {
+            const usersAfterTrial = readData(FILE_USERS) || [];
+            const trialUser = usersAfterTrial.find(u => String(u.username || '').toLowerCase() === String(session.username || '').toLowerCase());
+            if (trialUser && roleMustChangeDefaultPassword(session.role) && isStoredPasswordDefault(trialUser)) session.mustChangePassword = true;
+        } catch (_e) { /* cannot verify: leave the session as it is, the next login applies the normal rule */ }
+        persistSessions();
     }
     if (session.mustChangePassword && !roleMustChangeDefaultPassword(session.role)) {
         // Session created before the Admin-only rule: drop the stale flag so it can never block a Cashier/Staff session.
@@ -5375,6 +5409,8 @@ function getOrCreateInstallationId(data) {
 // WAITING ROOM for first-install activation. The activation screen polls this; OMNIPOS forwards the poll to RELAY, which answers with a
 // pairing code and, once the developer has sent one, the activation key. Public ONLY while the device is not activated (see both gates).
 // It never activates anything: the page still submits the key to /api/relay/activate, and RELAY performs every real check.
+// Device name/model na pinili/tinype ng customer sa activation screen; ipinapasa lang sa RELAY (nililinis din doon). Plain text lang, max 60.
+function _cleanActivationDeviceText(v) { return String(v == null ? '' : v).replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\u2060\uFEFF<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60); }
 let _activationInboxIdentity = null;   // identity is stable while unactivated; computing it runs shell commands, so do it once
 app.post('/api/relay/activation-inbox', rateLimit('relay-activation-inbox', 40, 60 * 1000), async (req, res) => {
     try {
@@ -5387,7 +5423,7 @@ app.post('/api/relay/activation-inbox', rateLimit('relay-activation-inbox', 40, 
             if (!installationId || !fingerprint || !/^[a-fA-F0-9]{32,128}$/.test(String(fingerprint))) return res.status(409).json({ success: false, code: 'DEVICE_IDENTITY_UNAVAILABLE', message: 'Could not verify this device identity.' });
             _activationInboxIdentity = { installationId, fingerprint };
         }
-        const response = await relayFetch(`${RELAY_URL}/relay/client/activation-inbox`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(_activationInboxIdentity) }, 10000);
+        const response = await relayFetch(`${RELAY_URL}/relay/client/activation-inbox`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ..._activationInboxIdentity, deviceName: _cleanActivationDeviceText(req.body?.deviceName), deviceModel: _cleanActivationDeviceText(req.body?.deviceModel) }) }, 10000);
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) return res.status(response.status >= 400 ? response.status : 502).json({ success: false, code: data.code || 'ACTIVATION_INBOX_UNAVAILABLE', message: data.message || 'Could not reach RELAY.' });
         res.set('Cache-Control', 'no-store');
@@ -12916,7 +12952,8 @@ app.post('/api/auth/login', async (req, res) => {
                 user.password = bcrypt.hashSync(password, 10);
                 writeData(FILE_USERS, users);
             }
-            const mustChangePassword = roleMustChangeDefaultPassword(user.role) && isDefaultSeededCredential(user.username, password);
+            const defaultPwGate = evaluateDefaultPasswordGate(user.role, isDefaultSeededCredential(user.username, password));
+            const mustChangePassword = defaultPwGate.mustChangePassword;
             const advSettingsForLogin = getAdvancedSettingsPublic(readData(FILE_ADVANCED_SETTINGS, DEFAULT_ADVANCED_SETTINGS));
             const isAdminRole = (user.role || '').toLowerCase() === 'admin';
             if (advSettingsForLogin.twoFactorLoginEnabled && isAdminRole) {
@@ -12930,6 +12967,7 @@ app.post('/api/auth/login', async (req, res) => {
                         username: user.username,
                         role: user.role,
                         mustChangePassword,
+                        pwChangeDeferredByTrial: defaultPwGate.deferredByTrial,
                         code: otpCode,
                         expiresAt: Date.now() + LOGIN_OTP_TTL_MS,
                         userAgent: req.headers['user-agent'],
@@ -12958,12 +12996,32 @@ app.post('/api/auth/login', async (req, res) => {
                 }
             }
             logAction(user.username, `Logged into the system`);
-            const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword });
+            const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword, pwChangeDeferredByTrial: defaultPwGate.deferredByTrial });
             const permissions = getPermissionsForRole(user.role);
             return res.json({ success: true, mustChangePassword, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
         }
     }
     res.status(401).json({ success: false, message:'Incorrect username or password.' });
+});
+// TRIAL LOGIN HINT (public, read-only): while the free-trial Demo Mode is running AND the seeded Admin account still has its
+// default password, tell the login screen to pre-fill it so the client only taps Sign In. It never reveals anything else:
+// if the Admin already chose another password, the account is not the seeded one, or the trial is over, it answers prefill:false.
+app.get('/api/auth/trial-login-hint', rateLimit('trial-login-hint', 60, 10 * 60 * 1000), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const none = () => res.json({ success: true, prefill: false });
+    try {
+        if (!isTrialDemoActive()) return none();
+        const users = readData(FILE_USERS) || [];
+        const admin = users.find(u => String(u.username || '').trim().toLowerCase() === 'admin' && roleMustChangeDefaultPassword(u.role));
+        if (!admin || typeof admin.password !== 'string') return none();
+        let stillDefault = false;
+        try { stillDefault = bcrypt.compareSync(DEFAULT_SEEDED_PASSWORDS.admin, admin.password); }
+        catch (_e) { stillDefault = admin.password === DEFAULT_SEEDED_PASSWORDS.admin; }
+        if (!stillDefault) return none();
+        return res.json({ success: true, prefill: true, username: admin.username, password: DEFAULT_SEEDED_PASSWORDS.admin });
+    } catch (_e) {
+        return none();
+    }
 });
 app.post('/api/auth/login/verify-otp', rateLimit('login-verify-otp', 8, 10 * 60 * 1000), (req, res) => {
     const { loginToken, otp } = req.body;
@@ -12998,7 +13056,7 @@ app.post('/api/auth/login/verify-otp', rateLimit('login-verify-otp', 8, 10 * 60 
         return res.status(404).json({ success: false, message: 'Hindi na umiiral ang account na ito.' });
     }
     logAction(user.username, `Logged into the system (2FA-verified)`);
-    const token = createSession(user.username, user.role, pending.userAgent, pending.ip, { mustChangePassword: !!pending.mustChangePassword });
+    const token = createSession(user.username, user.role, pending.userAgent, pending.ip, { mustChangePassword: !!pending.mustChangePassword, pwChangeDeferredByTrial: !!pending.pwChangeDeferredByTrial });
     const permissions = getPermissionsForRole(user.role);
     res.json({ success: true, mustChangePassword: !!pending.mustChangePassword, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
 });
@@ -13256,8 +13314,9 @@ app.post('/api/auth/webauthn/login-verify', async (req, res) => {
         writeData(FILE_USERS, usersAfterAwait);
         const user = userAfterAwait;
         logAction(user.username,`Naka-login gamit ang Fingerprint/Biometric Login (${cred.deviceLabel || 'device'})`);
-        const mustChangePassword = roleMustChangeDefaultPassword(user.role) && isStoredPasswordDefault(user);
-        const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword });
+        const defaultPwGate = evaluateDefaultPasswordGate(user.role, isStoredPasswordDefault(user));
+        const mustChangePassword = defaultPwGate.mustChangePassword;
+        const token = createSession(user.username, user.role, req.headers['user-agent'], getClientIp(req), { mustChangePassword, pwChangeDeferredByTrial: defaultPwGate.deferredByTrial });
         const permissions = getPermissionsForRole(user.role);
         return res.json({ success: true, mustChangePassword, user: { username: user.username, displayName: user.displayName || null, role: user.role, avatar: user.avatar || null }, token, permissions, menuRegistry: MENU_REGISTRY });
     } catch (err) {
@@ -17464,6 +17523,10 @@ app.post('/api/users/self/change-password', rateLimit('self-change-pw', 8, 10 * 
     if (ownSessionAfterChange && ownSessionAfterChange.mustChangePassword) {
         delete ownSessionAfterChange.mustChangePassword;
         otherSessionsRevoked++; // forces the persistSessions() call below so the cleared flag is saved
+    }
+    if (ownSessionAfterChange && ownSessionAfterChange.pwChangeDeferredByTrial) {
+        delete ownSessionAfterChange.pwChangeDeferredByTrial; // a real password was just set: nothing left to postpone
+        otherSessionsRevoked++;
     }
     if (otherSessionsRevoked > 0) persistSessions();
     logAction(meUsername, `Changed own account password`);

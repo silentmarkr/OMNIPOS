@@ -873,6 +873,18 @@ function readDataLite(moduleName, defaultData = []) {
     }
 }
 
+// Optional hook (set by server.js) that runs on the product list right BEFORE it is written to the database.
+// Used by the Recipe feature: stock of a recipe product is derived from its ingredients, so it must be
+// re-computed on every products write (sale, restock, edit, ...), no matter which code path wrote it.
+let productsBeforeWriteHook = null;
+function setProductsBeforeWriteHook(fn) {
+    productsBeforeWriteHook = (typeof fn === 'function') ? fn : null;
+}
+function runProductsBeforeWriteHook(list) {
+    if (!productsBeforeWriteHook || !Array.isArray(list)) return;
+    try { productsBeforeWriteHook(list); } catch (e) { console.error('[products-before-write hook] failed (write continues):', e && e.message); }
+}
+
 function writeData(moduleName, data) {
     if (ROW_NORMALIZED_MODULES.has(moduleName)) {
         // BUGFIX: dati laging `true` ang ibinabalik kahit nag-ROLLBACK ang write (disk full/corrupt) — akala ng caller ay nasave.
@@ -891,6 +903,7 @@ function writeData(moduleName, data) {
         const now = new Date().toISOString();
         try {
             const list = data;
+            runProductsBeforeWriteHook(list);
             db.exec('BEGIN IMMEDIATE');
             syncProductImages(list, now);
             const json = JSON.stringify(stripProductImagesForStorage(list));
@@ -958,6 +971,7 @@ function writeDataDirectInTransaction(moduleName, data, now) {
 
     if (moduleName === 'products') {
         const list = Array.isArray(data) ? data : [];
+        runProductsBeforeWriteHook(list);
         // Sales/stock transactions intentionally pass a photo-free lite catalog.
         // There is no image mutation in that path, so skip all image-table work.
         // Full product writes still synchronize and clean up the photo table.
@@ -2678,6 +2692,7 @@ function checkModuleBlobSizes(warnThresholdBytes = 20 * 1024 * 1024) {
 
 module.exports.checkModuleBlobSizes = checkModuleBlobSizes;
 module.exports.writeRefusalContext = writeRefusalContext;
+module.exports.setProductsBeforeWriteHook = setProductsBeforeWriteHook;
 
 // Checkpoints the WAL and closes the DB before exit (called by the server's shutdown handler).
 // The "clean shutdown" marker is only written AFTER a successful checkpoint+close and only when no corruption
